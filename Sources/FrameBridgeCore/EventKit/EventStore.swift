@@ -1,0 +1,103 @@
+import EventKit
+import Foundation
+import Logging
+import ServiceLifecycle
+
+/// The one `EKEventStore` for calendar (and later shopping). Read only: nothing here or in the
+/// adapters calls save, remove or commit.
+// @unchecked: EKEventStore is documented as usable from any thread for reads, and `denied` is only
+// written once, before the observer starts.
+final class SharedEventStore: @unchecked Sendable {
+    let store = EKEventStore()
+    private let logger: Logger
+    private let lock = NSLock()
+    private var _unavailableReason: String?
+
+    init(logger: Logger = Logger(label: "frame-bridge.eventkit")) {
+        self.logger = logger
+    }
+
+    var unavailableReason: String? { lock.withLock { _unavailableReason } }
+
+    /// Asking for access from a binary without the privacy string kills the process, so `swift run`
+    /// skips it. The .app bundle has the string.
+    func requestEventsAccess() async {
+        guard Bundle.main.object(forInfoDictionaryKey: "NSCalendarsFullAccessUsageDescription") != nil else {
+            lock.withLock { _unavailableReason = "not running from the .app bundle" }
+            logger.warning("not running from the .app bundle, skipping the calendar access request")
+            return
+        }
+        do {
+            _ = try await store.requestFullAccessToEvents()
+        } catch {
+            logger.warning("calendar access request failed")
+        }
+    }
+
+    static func authorization(for type: EKEntityType) -> FeedHealth.Authorization {
+        switch EKEventStore.authorizationStatus(for: type) {
+        case .fullAccess: .fullAccess
+        case .writeOnly: .writeOnly
+        case .denied: .denied
+        case .restricted: .restricted
+        case .notDetermined: .notDetermined
+        case .authorized: .fullAccess
+        @unknown default: .notDetermined
+        }
+    }
+}
+
+/// EKEventStoreChanged fires in bursts: waits for a quiet interval, then calls each subscriber once.
+actor EventStoreDebouncer {
+    private let interval: Duration
+    private var handlers: [@Sendable () async -> Void] = []
+    private var pending: Task<Void, Never>?
+
+    init(interval: Duration = .seconds(2)) {
+        self.interval = interval
+    }
+
+    func subscribe(_ handler: @escaping @Sendable () async -> Void) {
+        handlers.append(handler)
+    }
+
+    func poke() {
+        pending?.cancel()
+        pending = Task { [interval] in
+            try? await Task.sleep(for: interval)
+            guard !Task.isCancelled else { return }
+            await fire()
+        }
+    }
+
+    private func fire() async {
+        pending = nil
+        for handler in handlers { await handler() }
+    }
+
+    func stop() {
+        pending?.cancel()
+        pending = nil
+    }
+}
+
+/// Requests access, checks the feed once, then forwards store changes to the debouncer until shutdown.
+struct EventStoreService: Service {
+    let store: SharedEventStore
+    let debouncer: EventStoreDebouncer
+    let feed: CalendarFeed
+    let onChange: @Sendable () async -> Void
+
+    func run() async throws {
+        await debouncer.subscribe(onChange)
+        await store.requestEventsAccess()
+        await feed.startupCheck()
+        let debouncer = debouncer
+        let observer = NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: store.store, queue: nil) { _ in
+            Task { await debouncer.poke() }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        try? await gracefulShutdown()
+        await debouncer.stop()
+    }
+}

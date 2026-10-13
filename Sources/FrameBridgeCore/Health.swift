@@ -1,6 +1,6 @@
 import Hummingbird
 
-/// `Health` in the contract. `authorization` (photos) arrive with the feeds that set them.
+/// `Health` in the contract.
 public struct Health: ResponseEncodable, Decodable, Equatable, Sendable {
     public enum Status: String, Codable, Sendable { case ok, degraded }
 
@@ -31,12 +31,19 @@ public struct FeedHealth: Codable, Equatable, Sendable {
     public var staleAfterSeconds: Int
     public var detail: String?
     public var updatedAt: String?
+    public var authorization: Authorization?
 
-    public init(status: Status, staleAfterSeconds: Int, detail: String? = nil, updatedAt: String? = nil) {
+    /// The spec's privacy authorization values (EventKit and PhotoKit).
+    public enum Authorization: String, Codable, Sendable {
+        case fullAccess, writeOnly, authorized, limited, denied, restricted, notDetermined
+    }
+
+    public init(status: Status, staleAfterSeconds: Int, detail: String? = nil, updatedAt: String? = nil, authorization: Authorization? = nil) {
         self.status = status
         self.staleAfterSeconds = staleAfterSeconds
         self.detail = detail
         self.updatedAt = updatedAt
+        self.authorization = authorization
     }
 
     public static func notConfigured(staleAfterSeconds: Int) -> FeedHealth {
