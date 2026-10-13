@@ -24,7 +24,7 @@ private actor MutableProvider: ShoppingProvider {
     func reminders(listTitle: String, completedSince: Date, until: Date) async throws -> [ReminderValues] { values }
 }
 
-private let config = ShoppingConfig(list: "Shopping", stores: [Store(id: "grocer", name: "FreshCo")], defaultStore: "grocer", categories: ["Produce": ["avocados"]])
+private let config = ShoppingConfig(list: "Shopping", stores: [Store(id: "grocer", name: "<store>")], defaultStore: "grocer", categories: ["Produce": ["avocados"]])
 private func rem(_ id: String, _ title: String) -> ReminderValues { ReminderValues(id: id, title: title, notes: nil, isCompleted: false, completionDate: nil) }
 
 private func feed(_ p: any ShoppingProvider) -> ShoppingFeed {
@@ -46,7 +46,7 @@ private func app(_ p: StubProvider) -> some ApplicationProtocol {
     #expect(status == .ok)
     #expect(!body.contains("null"))
     let list = try JSONDecoder().decode(ShoppingList.self, from: Data(body.utf8))
-    #expect(list.stores == [Store(id: "grocer", name: "FreshCo")])
+    #expect(list.stores == [Store(id: "grocer", name: "<store>")])
     #expect(list.items.map(\.name) == ["avocados", "Soap"])
     #expect(list.items[0].qty == 3 && list.items[0].cat == .produce && list.items[1].cat == .other)
 }

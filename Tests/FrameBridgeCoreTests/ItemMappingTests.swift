@@ -5,7 +5,7 @@ import Testing
 
 private let config = ShoppingConfig(
     list: "Shopping",
-    stores: [Store(id: "grocer", name: "FreshCo"), Store(id: "costco", name: "Costco")],
+    stores: [Store(id: "grocer", name: "<store>"), Store(id: "costco", name: "<store>")],
     defaultStore: "grocer",
     storeKeywords: ["costco": ["paper towels"]],
     categories: ["Produce": ["apple", "avocados", "pineapple"], "Dairy & Eggs": ["butter", "eggs"], "Household": ["paper towels", "paper"]]
