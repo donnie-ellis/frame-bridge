@@ -13,7 +13,11 @@ import Testing
             let body = String(buffer: response.body)
             #expect(!body.contains("null"))
             let health = try JSONDecoder().decode(Health.self, from: Data(body.utf8))
+            #expect(health.version == "0.3.0")
             #expect(health.version == contractVersion)
+            for key in ["calendar", "shopping", "lights", "weather", "photos"] {
+                #expect(body.contains("\"\(key)\""))
+            }
             #expect(health.status == .degraded)
         }
     }
@@ -21,5 +25,11 @@ import Testing
 
 @Test func statusIsOkWhenNoFeedFails() {
     let ok = FeedHealth(status: .ok, staleAfterSeconds: 60)
-    #expect(Health(feeds: .init(calendar: ok, shopping: ok, lights: ok)).status == .ok)
+    #expect(Health(feeds: .init(calendar: ok, shopping: ok, lights: ok, weather: ok, photos: ok)).status == .ok)
+}
+
+@Test func weatherAloneInErrorIsDegraded() {
+    let ok = FeedHealth(status: .ok, staleAfterSeconds: 60)
+    let bad = FeedHealth.notImplemented(staleAfterSeconds: 60)
+    #expect(Health(feeds: .init(calendar: ok, shopping: ok, lights: ok, weather: bad, photos: ok)).status == .degraded)
 }
