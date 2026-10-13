@@ -14,11 +14,15 @@ public struct Config: Decodable, Sendable {
     /// Calendars to read and who they are for. Absent: the calendar feed reports "not configured".
     public let calendar: CalendarConfig?
 
-    public init(frames: [String: String], dashboardDir: String, weather: WeatherConfig? = nil, calendar: CalendarConfig? = nil) {
+    /// The Reminders list, stores and keyword maps. Absent: the shopping feed reports "not configured".
+    public let shopping: ShoppingConfig?
+
+    public init(frames: [String: String], dashboardDir: String, weather: WeatherConfig? = nil, calendar: CalendarConfig? = nil, shopping: ShoppingConfig? = nil) {
         self.frames = frames
         self.dashboardDir = dashboardDir
         self.weather = weather
         self.calendar = calendar
+        self.shopping = shopping
     }
 
     public static func decode(_ data: Data) throws -> Config {
@@ -39,6 +43,7 @@ public struct Config: Decodable, Sendable {
             if !(-180...180).contains(w.longitude) { throw ConfigError.badWeather(field: "longitude") }
         }
         if let c = config.calendar { try c.validate() }
+        if let s = config.shopping { try s.validate() }
         return config
     }
 
@@ -110,6 +115,56 @@ public struct CalendarConfig: Decodable, Sendable, Equatable {
     }
 }
 
+/// The Reminders list to read and the keyword maps. List title and keywords are private: never log them.
+public struct ShoppingConfig: Decodable, Sendable, Equatable {
+    public let list: String
+    public let stores: [Store]
+    public let defaultStore: String
+    /// Store id -> keywords.
+    public let storeKeywords: [String: [String]]
+    /// Category (a `ShoppingItem.Category` raw value) -> keywords.
+    public let categories: [String: [String]]
+
+    public init(list: String, stores: [Store], defaultStore: String, storeKeywords: [String: [String]] = [:], categories: [String: [String]] = [:]) {
+        self.list = list
+        self.stores = stores
+        self.defaultStore = defaultStore
+        self.storeKeywords = storeKeywords
+        self.categories = categories
+    }
+
+    private enum CodingKeys: String, CodingKey { case list, stores, defaultStore, storeKeywords, categories }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        list = try c.decode(String.self, forKey: .list)
+        stores = try c.decode([Store].self, forKey: .stores)
+        defaultStore = try c.decode(String.self, forKey: .defaultStore)
+        storeKeywords = try c.decodeIfPresent([String: [String]].self, forKey: .storeKeywords) ?? [:]
+        categories = try c.decodeIfPresent([String: [String]].self, forKey: .categories) ?? [:]
+    }
+
+    func validate() throws {
+        if list.isEmpty { throw ConfigError.badShopping("\"shopping.list\" is empty") }
+        if stores.isEmpty { throw ConfigError.badShopping("\"shopping.stores\" must list at least one store") }
+        let ids = stores.map(\.id)
+        if ids.contains("") { throw ConfigError.badShopping("a store has an empty id") }
+        if Set(ids).count != ids.count { throw ConfigError.badShopping("\"shopping.stores\" has a duplicate id") }
+        if !ids.contains(defaultStore) { throw ConfigError.badShopping("\"shopping.defaultStore\" \"\(defaultStore)\" is not a store id") }
+        for key in storeKeywords.keys.sorted() where !ids.contains(key) {
+            throw ConfigError.badShopping("\"shopping.storeKeywords\" key \"\(key)\" is not a store id")
+        }
+        for key in categories.keys.sorted() {
+            guard let cat = ShoppingItem.Category(rawValue: key), cat != .other else {
+                throw ConfigError.badShopping("\"shopping.categories\" key \"\(key)\" is not a category")
+            }
+        }
+        if (Array(storeKeywords.values) + Array(categories.values)).contains(where: { $0.contains("") }) {
+            throw ConfigError.badShopping("a keyword is empty")
+        }
+    }
+}
+
 /// `"all"` or a list of person ids.
 public enum CalendarPeople: Decodable, Sendable, Equatable {
     case all
@@ -139,6 +194,7 @@ public enum ConfigError: Error, CustomStringConvertible, Equatable {
     case badDashboardDir
     case badWeather(field: String)
     case badCalendar(String)
+    case badShopping(String)
 
     public var description: String {
         switch self {
@@ -148,6 +204,7 @@ public enum ConfigError: Error, CustomStringConvertible, Equatable {
         case .badDashboardDir: "\"dashboardDir\" must be an absolute path"
         case .badWeather(let field): "\"weather.\(field)\" is out of range"
         case .badCalendar(let detail): "calendar config: \(detail)"
+        case .badShopping(let detail): "shopping config: \(detail)"
         case .badHash(let frame): "frame \"\(frame)\" needs a 64-character lowercase hex SHA-256 hash"
         }
     }

@@ -3,7 +3,7 @@ import Foundation
 import Logging
 import ServiceLifecycle
 
-/// The one `EKEventStore` for calendar (and later shopping). Read only: nothing here or in the
+/// The one `EKEventStore` for calendar and shopping. Read only: nothing here or in the
 /// adapters calls save, remove or commit.
 // @unchecked: EKEventStore is documented as usable from any thread for reads, and `denied` is only
 // written once, before the observer starts.
@@ -31,6 +31,20 @@ final class SharedEventStore: @unchecked Sendable {
             _ = try await store.requestFullAccessToEvents()
         } catch {
             logger.warning("calendar access request failed")
+        }
+    }
+
+    /// Same bundle guard as events: the privacy string must be in the .app's Info.plist.
+    func requestRemindersAccess() async {
+        guard Bundle.main.object(forInfoDictionaryKey: "NSRemindersFullAccessUsageDescription") != nil else {
+            lock.withLock { _unavailableReason = "not running from the .app bundle" }
+            logger.warning("not running from the .app bundle, skipping the reminders access request")
+            return
+        }
+        do {
+            _ = try await store.requestFullAccessToReminders()
+        } catch {
+            logger.warning("reminders access request failed")
         }
     }
 
@@ -81,17 +95,27 @@ actor EventStoreDebouncer {
     }
 }
 
-/// Requests access, checks the feed once, then forwards store changes to the debouncer until shutdown.
+/// Requests access, checks each feed once, then forwards store changes to the debouncer until shutdown.
 struct EventStoreService: Service {
     let store: SharedEventStore
     let debouncer: EventStoreDebouncer
-    let feed: CalendarFeed
-    let onChange: @Sendable () async -> Void
+    let calendar: CalendarFeed?
+    let shopping: ShoppingFeed?
+    let events: EventHub
 
     func run() async throws {
-        await debouncer.subscribe(onChange)
-        await store.requestEventsAccess()
-        await feed.startupCheck()
+        if let calendar {
+            let events = events
+            await debouncer.subscribe { await events.calendarChanged() }
+            await store.requestEventsAccess()
+            await calendar.startupCheck()
+        }
+        if let shopping {
+            let events = events
+            await debouncer.subscribe { if await shopping.rebuild() { await events.shoppingChanged() } }
+            await store.requestRemindersAccess()
+            await shopping.startupCheck()
+        }
         let debouncer = debouncer
         let observer = NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: store.store, queue: nil) { _ in
             Task { await debouncer.poke() }
