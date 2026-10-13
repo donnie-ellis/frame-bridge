@@ -6,9 +6,9 @@ import Testing
 @testable import FrameBridgeCore
 
 @Test func healthzReportsEveryFeedAndOmitsNulls() async throws {
-    let app = Application(router: buildRouter())
+    let app = Application(router: buildRouter(config: TestAuth.config))
     try await app.test(.router) { client in
-        try await client.execute(uri: "/healthz", method: .get) { response in
+        try await client.execute(uri: "/healthz", method: .get, headers: TestAuth.headers) { response in
             #expect(response.status == .ok)
             let body = String(buffer: response.body)
             #expect(!body.contains("null"))
