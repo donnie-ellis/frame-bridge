@@ -1,0 +1,5 @@
+{
+  "frames": {
+    "kitchen": "<sha256 hex of the kitchen frame's token>"
+  }
+}
