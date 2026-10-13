@@ -71,3 +71,28 @@ private func withWeather(_ weather: String) -> Data {
         try Config.decode(withWeather("{\"latitude\":0,\"longitude\":181,\"unit\":\"celsius\"}"))
     }
 }
+
+private func withCalendar(_ calendar: String) -> Data {
+    Data("{\"frames\":{\"kitchen\":\"\(good)\"},\"dashboardDir\":\"/tmp/dist\",\"calendar\":\(calendar)}".utf8)
+}
+
+@Test func calendarIsOptionalAndParses() throws {
+    #expect(try Config.decode(json("{\"kitchen\":\"\(good)\"}")).calendar == nil)
+    let c = try Config.decode(withCalendar("{\"people\":[\"a\",\"b\"],\"calendars\":{\"Family\":\"all\",\"Mine\":[\"a\"]}}"))
+    #expect(c.calendar?.people(for: "Family") == ["a", "b"])
+    #expect(c.calendar?.people(for: "Mine") == ["a"])
+    #expect(c.calendar?.people(for: "Other") == nil)
+}
+
+@Test func calendarRejectsBadSections() {
+    for bad in [
+        "{\"people\":[],\"calendars\":{}}",
+        "{\"people\":[\"a\",\"a\"],\"calendars\":{}}",
+        "{\"people\":[\"\"],\"calendars\":{}}",
+        "{\"people\":[\"a\"],\"calendars\":{\"X\":[]}}",
+        "{\"people\":[\"a\"],\"calendars\":{\"X\":[\"zed\"]}}",
+        "{\"people\":[\"a\"],\"calendars\":{\"X\":\"everyone\"}}",
+    ] {
+        #expect(throws: ConfigError.self) { try Config.decode(withCalendar(bad)) }
+    }
+}
