@@ -3,7 +3,7 @@ import HTTPTypes
 import Hummingbird
 
 /// The spec's `Error` shape: `{ "error": code, "detail"?: ... }`.
-public struct APIError: Error, Codable, Sendable {
+public struct APIError: HTTPResponseError, Codable, Sendable {
     public let error: String
     public let detail: String?
     public let status: HTTPResponse.Status
@@ -30,6 +30,10 @@ public struct APIError: Error, Codable, Sendable {
     }
     public static func sourceUnavailable(_ detail: String) -> APIError {
         APIError(error: "source_unavailable", detail: detail, status: .serviceUnavailable)
+    }
+
+    public func response(from request: Request, context: some RequestContext) throws -> Response {
+        try response()
     }
 
     public func response() throws -> Response {

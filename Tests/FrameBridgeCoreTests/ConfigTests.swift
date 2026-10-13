@@ -51,3 +51,23 @@ private let good = TestAuth.hex(sha256: UUID().uuidString)
     let ok = try Config.decode(Data((frames + ",\"dashboardDir\":\"/srv/dist\"}").utf8))
     #expect(ok.dashboardDir == "/srv/dist")
 }
+
+private func withWeather(_ weather: String) -> Data {
+    Data("{\"frames\":{\"kitchen\":\"\(good)\"},\"dashboardDir\":\"/tmp/dist\",\"weather\":\(weather)}".utf8)
+}
+
+@Test func weatherIsOptionalAndParses() throws {
+    #expect(try Config.decode(json("{\"kitchen\":\"\(good)\"}")).weather == nil)
+    let c = try Config.decode(withWeather("{\"latitude\":0.0,\"longitude\":0.0,\"unit\":\"fahrenheit\"}"))
+    #expect(c.weather?.unit == .fahrenheit)
+}
+
+@Test func weatherRejectsBadUnitAndRange() {
+    #expect(throws: ConfigError.self) { try Config.decode(withWeather("{\"latitude\":0,\"longitude\":0,\"unit\":\"kelvin\"}")) }
+    #expect(throws: ConfigError.badWeather(field: "latitude")) {
+        try Config.decode(withWeather("{\"latitude\":91,\"longitude\":0,\"unit\":\"celsius\"}"))
+    }
+    #expect(throws: ConfigError.badWeather(field: "longitude")) {
+        try Config.decode(withWeather("{\"latitude\":0,\"longitude\":181,\"unit\":\"celsius\"}"))
+    }
+}
