@@ -8,19 +8,21 @@ public actor WeatherStore {
     private let fetcher: any ForecastFetching
     private let timeZone: TimeZone
     private let logger: Logger
+    private let events: EventHub?
     private var forecast: Weather?
     private var lastSuccess: Date?
     private var lastError: String?
     private var loggedCodes = Set<Int>()
 
-    init(fetcher: any ForecastFetching, timeZone: TimeZone = .current, logger: Logger = Logger(label: "frame-bridge.weather")) {
+    init(fetcher: any ForecastFetching, timeZone: TimeZone = .current, logger: Logger = Logger(label: "frame-bridge.weather"), events: EventHub? = nil) {
         self.fetcher = fetcher
         self.timeZone = timeZone
         self.logger = logger
+        self.events = events
     }
 
-    public init(config: WeatherConfig, logger: Logger) {
-        self.init(fetcher: OpenMeteoClient(config: config), logger: logger)
+    public init(config: WeatherConfig, logger: Logger, events: EventHub? = nil) {
+        self.init(fetcher: OpenMeteoClient(config: config), logger: logger, events: events)
     }
 
     /// On failure keeps serving the last good forecast.
@@ -33,9 +35,11 @@ public actor WeatherStore {
                 loggedCodes.insert(code)
                 logger.warning("unknown Open-Meteo weather code, shown as cloud", metadata: ["code": .stringConvertible(code)])
             }
+            let changed = weather != forecast
             forecast = weather
             lastSuccess = Date()
             lastError = nil
+            if changed { await events?.weatherChanged() }
         } catch {
             let detail = Self.describe(error)
             lastError = detail

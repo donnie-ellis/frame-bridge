@@ -5,7 +5,7 @@ import ServiceLifecycle
 /// The `info.version` of `frame-bridge.openapi.yaml` this build implements.
 public let contractVersion = "0.3.0"
 
-public func buildRouter(config: Config, weather: WeatherStore? = nil) -> Router<FrameRequestContext> {
+public func buildRouter(config: Config, weather: WeatherStore? = nil, events: EventHub = EventHub()) -> Router<FrameRequestContext> {
     let router = Router(context: FrameRequestContext.self)
     // Before every route, so none can skip the token check.
     router.add(middleware: FrameTokenMiddleware(store: TokenStore(config: config)))
@@ -13,6 +13,7 @@ public func buildRouter(config: Config, weather: WeatherStore? = nil) -> Router<
     router.add(middleware: LogRequestsMiddleware(.info))
     // After the token check: files need the cookie too.
     router.add(middleware: DashboardFilesMiddleware(config: config))
+    events.addRoutes(to: router)
     router.get("api/weather") { _, _ -> Weather in
         guard let weather else { throw APIError.sourceUnavailable("not configured") }
         return try await weather.current()
@@ -44,16 +45,18 @@ public func buildApplication(config: Config) -> some ApplicationProtocol {
     case .missing: logger.warning("dashboardDir is missing, files will return 404", metadata: ["path": .string(config.dashboardDir)])
     case .empty: logger.warning("dashboardDir is empty, files will return 404", metadata: ["path": .string(config.dashboardDir)])
     }
+    let events = EventHub()
     var weather: WeatherStore?
     if let weatherConfig = config.weather {
-        weather = WeatherStore(config: weatherConfig, logger: logger)
+        weather = WeatherStore(config: weatherConfig, logger: logger, events: events)
     } else {
         logger.info("weather not configured")
     }
     var app = Application(
-        router: buildRouter(config: config, weather: weather),
+        router: buildRouter(config: config, weather: weather, events: events),
         configuration: .init(address: .hostname("0.0.0.0", port: 8787), serverName: "frame-bridge")
     )
+    app.addServices(EventPingService(hub: events))
     if let weather { app.addServices(WeatherRefreshService(store: weather)) }
     return app
 }
