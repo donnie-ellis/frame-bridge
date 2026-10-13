@@ -8,9 +8,13 @@ public struct Config: Decodable, Sendable {
     /// Absolute path of the built dashboard that is served at `/`.
     public let dashboardDir: String
 
-    public init(frames: [String: String], dashboardDir: String) {
+    /// Home location and unit for the forecast. Absent: the weather feed reports "not configured".
+    public let weather: WeatherConfig?
+
+    public init(frames: [String: String], dashboardDir: String, weather: WeatherConfig? = nil) {
         self.frames = frames
         self.dashboardDir = dashboardDir
+        self.weather = weather
     }
 
     public static func decode(_ data: Data) throws -> Config {
@@ -26,6 +30,10 @@ public struct Config: Decodable, Sendable {
             if !isValidHash(hash) { throw ConfigError.badHash(frame: name) }
         }
         if !config.dashboardDir.hasPrefix("/") { throw ConfigError.badDashboardDir }
+        if let w = config.weather {
+            if !(-90...90).contains(w.latitude) { throw ConfigError.badWeather(field: "latitude") }
+            if !(-180...180).contains(w.longitude) { throw ConfigError.badWeather(field: "longitude") }
+        }
         return config
     }
 
@@ -51,6 +59,21 @@ public struct Config: Decodable, Sendable {
     }
 }
 
+/// The home coordinates are private: never log or print them.
+public struct WeatherConfig: Decodable, Sendable {
+    public let latitude: Double
+    public let longitude: Double
+    public let unit: TemperatureUnit
+
+    public init(latitude: Double, longitude: Double, unit: TemperatureUnit) {
+        self.latitude = latitude
+        self.longitude = longitude
+        self.unit = unit
+    }
+}
+
+public enum TemperatureUnit: String, Decodable, Sendable { case celsius, fahrenheit }
+
 /// Messages name the frame, never the hash.
 public enum ConfigError: Error, CustomStringConvertible, Equatable {
     case unreadable(String)
@@ -58,6 +81,7 @@ public enum ConfigError: Error, CustomStringConvertible, Equatable {
     case noFrames
     case badHash(frame: String)
     case badDashboardDir
+    case badWeather(field: String)
 
     public var description: String {
         switch self {
@@ -65,6 +89,7 @@ public enum ConfigError: Error, CustomStringConvertible, Equatable {
         case .malformed(let detail): "malformed JSON: \(detail)"
         case .noFrames: "\"frames\" must list at least one frame"
         case .badDashboardDir: "\"dashboardDir\" must be an absolute path"
+        case .badWeather(let field): "\"weather.\(field)\" is out of range"
         case .badHash(let frame): "frame \"\(frame)\" needs a 64-character lowercase hex SHA-256 hash"
         }
     }

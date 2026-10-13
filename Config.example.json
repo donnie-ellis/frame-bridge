@@ -2,5 +2,6 @@
   "frames": {
     "kitchen": "<sha256 hex of the kitchen frame's token>"
   },
-  "dashboardDir": "/Users/<you>/Library/Application Support/frame-bridge/dashboard"
+  "dashboardDir": "/Users/<you>/Library/Application Support/frame-bridge/dashboard",
+  "weather": { "latitude": 0.0, "longitude": 0.0, "unit": "celsius" }
 }

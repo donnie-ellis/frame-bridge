@@ -1,6 +1,6 @@
 import Hummingbird
 
-/// `Health` in the contract. `updatedAt` and `authorization` (photos) arrive with the feeds that set them.
+/// `Health` in the contract. `authorization` (photos) arrive with the feeds that set them.
 public struct Health: ResponseEncodable, Decodable, Equatable, Sendable {
     public enum Status: String, Codable, Sendable { case ok, degraded }
 
@@ -30,6 +30,18 @@ public struct FeedHealth: Codable, Equatable, Sendable {
     public var status: Status
     public var staleAfterSeconds: Int
     public var detail: String?
+    public var updatedAt: String?
+
+    public init(status: Status, staleAfterSeconds: Int, detail: String? = nil, updatedAt: String? = nil) {
+        self.status = status
+        self.staleAfterSeconds = staleAfterSeconds
+        self.detail = detail
+        self.updatedAt = updatedAt
+    }
+
+    public static func notConfigured(staleAfterSeconds: Int) -> FeedHealth {
+        FeedHealth(status: .error, staleAfterSeconds: staleAfterSeconds, detail: "not configured")
+    }
 
     public static func notImplemented(staleAfterSeconds: Int) -> FeedHealth {
         FeedHealth(status: .error, staleAfterSeconds: staleAfterSeconds, detail: "not implemented")
