@@ -5,8 +5,12 @@ public struct Config: Decodable, Sendable {
     /// Frame name -> lowercase hex SHA-256 of that frame's token.
     public let frames: [String: String]
 
-    public init(frames: [String: String]) {
+    /// Absolute path of the built dashboard that is served at `/`.
+    public let dashboardDir: String
+
+    public init(frames: [String: String], dashboardDir: String) {
         self.frames = frames
+        self.dashboardDir = dashboardDir
     }
 
     public static func decode(_ data: Data) throws -> Config {
@@ -21,6 +25,7 @@ public struct Config: Decodable, Sendable {
             if name.isEmpty { throw ConfigError.badHash(frame: "(empty name)") }
             if !isValidHash(hash) { throw ConfigError.badHash(frame: name) }
         }
+        if !config.dashboardDir.hasPrefix("/") { throw ConfigError.badDashboardDir }
         return config
     }
 
@@ -52,12 +57,14 @@ public enum ConfigError: Error, CustomStringConvertible, Equatable {
     case malformed(String)
     case noFrames
     case badHash(frame: String)
+    case badDashboardDir
 
     public var description: String {
         switch self {
         case .unreadable(let path): "cannot read file at \(path)"
         case .malformed(let detail): "malformed JSON: \(detail)"
         case .noFrames: "\"frames\" must list at least one frame"
+        case .badDashboardDir: "\"dashboardDir\" must be an absolute path"
         case .badHash(let frame): "frame \"\(frame)\" needs a 64-character lowercase hex SHA-256 hash"
         }
     }

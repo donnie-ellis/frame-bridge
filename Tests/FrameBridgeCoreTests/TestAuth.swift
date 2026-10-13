@@ -10,6 +10,11 @@ enum TestAuth {
     }
 
     static let token = UUID().uuidString + UUID().uuidString
-    static var config: Config { Config(frames: ["kitchen": hex(sha256: token)]) }
+    static var config: Config {
+        config(dashboardDir: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path)
+    }
+    static func config(dashboardDir: String) -> Config {
+        Config(frames: ["kitchen": hex(sha256: token)], dashboardDir: dashboardDir)
+    }
     static var headers: HTTPFields { [.cookie: "frame_token=\(token)"] }
 }
