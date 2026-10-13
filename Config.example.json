@@ -7,5 +7,12 @@
   "calendar": {
     "people": ["alex", "jordan", "maya", "otto"],
     "calendars": { "Family": "all", "<a calendar title>": ["maya"] }
+  },
+  "shopping": {
+    "list": "Shopping",
+    "stores": [{ "id": "grocer", "name": "<store>" }, { "id": "costco", "name": "<store>" }],
+    "defaultStore": "grocer",
+    "storeKeywords": { "costco": ["paper towels", "<keyword>"] },
+    "categories": { "Produce": ["banana", "apple", "<keyword>"], "Dairy & Eggs": ["milk", "butter"] }
   }
 }

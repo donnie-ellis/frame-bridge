@@ -7,7 +7,7 @@ import ServiceLifecycle
 /// The `info.version` of `frame-bridge.openapi.yaml` this build implements.
 public let contractVersion = "0.3.0"
 
-public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: CalendarFeed? = nil, events: EventHub = EventHub()) -> Router<FrameRequestContext> {
+public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: CalendarFeed? = nil, shopping: ShoppingFeed? = nil, events: EventHub = EventHub()) -> Router<FrameRequestContext> {
     let router = Router(context: FrameRequestContext.self)
     // Before every route, so none can skip the token check.
     router.add(middleware: FrameTokenMiddleware(store: TokenStore(config: config)))
@@ -28,12 +28,22 @@ public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: 
         headers[.contentType] = "application/json"
         return Response(status: .ok, headers: headers, body: .init(byteBuffer: ByteBuffer(data: try JSONEncoder().encode(events))))
     }
+    router.get("api/shopping") { _, _ -> ShoppingList in
+        guard let shopping else { throw APIError.sourceUnavailable("not configured") }
+        return try await shopping.list()
+    }
     router.get("healthz") { _, _ in
         let calendarHealth: FeedHealth
         if let calendar {
             calendarHealth = await calendar.health()
         } else {
             calendarHealth = .notConfigured(staleAfterSeconds: CalendarFeed.staleAfterSeconds)
+        }
+        let shoppingHealth: FeedHealth
+        if let shopping {
+            shoppingHealth = await shopping.health()
+        } else {
+            shoppingHealth = .notConfigured(staleAfterSeconds: ShoppingFeed.staleAfterSeconds)
         }
         let weatherHealth: FeedHealth
         if let weather {
@@ -43,7 +53,7 @@ public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: 
         }
         return Health(feeds: .init(
             calendar: calendarHealth,
-            shopping: .notImplemented(staleAfterSeconds: 300),
+            shopping: shoppingHealth,
             lights: .notImplemented(staleAfterSeconds: 120),
             weather: weatherHealth,
             photos: .notImplemented(staleAfterSeconds: 172800)
@@ -69,22 +79,29 @@ public func buildApplication(config: Config) -> some ApplicationProtocol {
         logger.info("weather not configured")
     }
     var calendar: CalendarFeed?
-    var calendarService: EventStoreService?
-    if let calendarConfig = config.calendar {
-        let store = SharedEventStore()
-        let debouncer = EventStoreDebouncer()
-        let feed = CalendarFeed(config: calendarConfig, provider: EventKitCalendarSource(store: store))
-        calendar = feed
-        calendarService = EventStoreService(store: store, debouncer: debouncer, feed: feed) { await events.calendarChanged() }
+    var shopping: ShoppingFeed?
+    var store: SharedEventStore?
+    if config.calendar != nil || config.shopping != nil { store = SharedEventStore() }
+    if let calendarConfig = config.calendar, let store {
+        calendar = CalendarFeed(config: calendarConfig, provider: EventKitCalendarSource(store: store))
     } else {
         logger.info("calendar not configured")
     }
+    if let shoppingConfig = config.shopping, let store {
+        shopping = ShoppingFeed(config: shoppingConfig, provider: EventKitShoppingSource(store: store))
+    } else {
+        logger.info("shopping not configured")
+    }
+    var eventStoreService: EventStoreService?
+    if let store {
+        eventStoreService = EventStoreService(store: store, debouncer: EventStoreDebouncer(), calendar: calendar, shopping: shopping, events: events)
+    }
     var app = Application(
-        router: buildRouter(config: config, weather: weather, calendar: calendar, events: events),
+        router: buildRouter(config: config, weather: weather, calendar: calendar, shopping: shopping, events: events),
         configuration: .init(address: .hostname("0.0.0.0", port: 8787), serverName: "frame-bridge")
     )
     app.addServices(EventPingService(hub: events))
     if let weather { app.addServices(WeatherRefreshService(store: weather)) }
-    if let calendarService { app.addServices(calendarService) }
+    if let eventStoreService { app.addServices(eventStoreService) }
     return app
 }

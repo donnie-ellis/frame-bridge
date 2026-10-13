@@ -96,3 +96,32 @@ private func withCalendar(_ calendar: String) -> Data {
         #expect(throws: ConfigError.self) { try Config.decode(withCalendar(bad)) }
     }
 }
+
+private func withShopping(_ shopping: String) -> Data {
+    Data("{\"frames\":{\"kitchen\":\"\(good)\"},\"dashboardDir\":\"/tmp/dist\",\"shopping\":\(shopping)}".utf8)
+}
+
+@Test func shoppingIsOptionalAndParses() throws {
+    #expect(try Config.decode(json("{\"kitchen\":\"\(good)\"}")).shopping == nil)
+    let c = try Config.decode(withShopping(#"{"list":"L","stores":[{"id":"a","name":"A"}],"defaultStore":"a"}"#))
+    #expect(c.shopping?.storeKeywords == [:] && c.shopping?.categories == [:])
+    let full = try Config.decode(withShopping(#"{"list":"L","stores":[{"id":"a","name":"A"},{"id":"b","name":"B"}],"defaultStore":"a","storeKeywords":{"b":["x"]},"categories":{"Produce":["y"]}}"#))
+    #expect(full.shopping?.storeKeywords == ["b": ["x"]])
+}
+
+@Test func shoppingRejectsBadSections() {
+    let s = #""stores":[{"id":"a","name":"A"}]"#
+    for bad in [
+        #"{"list":"","# + s + #","defaultStore":"a"}"#,
+        #"{"list":"L","stores":[],"defaultStore":"a"}"#,
+        #"{"list":"L","stores":[{"id":"","name":"A"}],"defaultStore":""}"#,
+        #"{"list":"L","stores":[{"id":"a","name":"A"},{"id":"a","name":"B"}],"defaultStore":"a"}"#,
+        #"{"list":"L","# + s + #","defaultStore":"z"}"#,
+        #"{"list":"L","# + s + #","defaultStore":"a","storeKeywords":{"z":["x"]}}"#,
+        #"{"list":"L","# + s + #","defaultStore":"a","categories":{"Gadgets":["x"]}}"#,
+        #"{"list":"L","# + s + #","defaultStore":"a","categories":{"Other":["x"]}}"#,
+        #"{"list":"L","# + s + #","defaultStore":"a","categories":{"Produce":[""]}}"#,
+    ] {
+        #expect(throws: ConfigError.self) { try Config.decode(withShopping(bad)) }
+    }
+}
