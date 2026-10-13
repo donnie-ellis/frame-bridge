@@ -15,8 +15,8 @@ public func buildRouter() -> Router<BasicRequestContext> {
     return router
 }
 
-/// Listens on all interfaces: the LAN needs port 8787, and Cloudflare Access guards the tunnel.
-/// There is no auth in here, so never expose this port beyond the LAN.
+/// Listens on all interfaces: the frames reach it on the LAN at port 8787. The frame_token check
+/// (not built yet) will be the only gate, so never expose this port beyond the LAN.
 public func buildApplication() -> some ApplicationProtocol {
     Application(
         router: buildRouter(),
