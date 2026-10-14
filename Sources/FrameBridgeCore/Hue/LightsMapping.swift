@@ -13,6 +13,8 @@ import Foundation
 /// | Room.lights           | room: children devices -> their light services; zone: children lights   |
 /// | Scene.room            | scene `group.rid`                                                       |
 /// | Scene.active          | `status.active` isn't `inactive` (no status: false)                     |
+/// | setRoom              | one `grouped_light` PUT, then a re-read of it for the response          |
+/// | recallScene          | one `scene` PUT; the response is the snapshot's Scene with active true  |
 /// | Scene.icon            | the config's scene name -> icon map; omitted when not mapped            |
 ///
 /// Rooms and zones without a `grouped_light` are left out, with their scenes. Lights in no kept
@@ -75,6 +77,24 @@ enum LightsMapping {
         }
         return LightsState(rooms: rooms, devices: devicesOut, scenes: scenes)
     }
+
+    /// The `grouped_light` id of a kept room or zone; nil when it has none, or the id is unknown.
+    static func groupedLightID(ofGroup id: String, in r: HueResources) -> String? {
+        guard let group = (r.rooms + r.zones).first(where: { $0.id == id }),
+              let rid = group.services.first(where: { $0.rtype == "grouped_light" })?.rid,
+              r.groupedLights.contains(where: { $0.id == rid })
+        else { return nil }
+        return rid
+    }
+
+    static func room(_ room: Room, after grouped: HueGroupedLight) -> Room {
+        var updated = room
+        updated.on = grouped.on?.on ?? false
+        updated.level = level(grouped.dimming?.brightness)
+        return updated
+    }
+
+    static let recallBody = Data(#"{"recall":{"action":"active"}}"#.utf8)
 
     /// The Hue PUT body. A level on a light that's off turns it on.
     static func hueBody(for patch: LightPatch, dimmable: Bool) -> Data {

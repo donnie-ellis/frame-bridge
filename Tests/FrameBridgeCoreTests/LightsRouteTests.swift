@@ -131,3 +131,134 @@ private let oneID = HueFixture.light(1)
     let failed = try await lightsHealth(live)
     #expect(failed.status == .error && failed.detail != nil)
 }
+
+private func puts(_ fake: FakeHueTransport) async -> [FakeHueTransport.Request] {
+    await fake.recorded().filter { $0.method != "GET" }
+}
+
+@Test func setRoomOffKeepsLevelAndSendsOneGroupedPut() async throws {
+    let fake = FakeHueTransport()
+    let (status, body) = try await call(app(feed(fake)), .put, "/api/rooms/\(HueFixture.roomA)", body: #"{"on":false}"#)
+    #expect(status == .ok)
+    #expect(!body.contains("null"))
+    let room = try JSONDecoder().decode(Room.self, from: Data(body.utf8))
+    #expect(room == Room(id: HueFixture.roomA, name: room.name, kind: .room, on: false, level: 80, lights: [HueFixture.light(1), HueFixture.light(2)]))
+    let sent = await puts(fake)
+    #expect(sent.count == 1)
+    #expect(sent.first?.path == "resource/grouped_light/\(HueFixture.grouped(1))")
+    #expect(sent.first?.body == LightsMapping.hueBody(for: LightPatch(on: false), dimmable: true))
+}
+
+@Test func setRoomLevelOnAnOffRoomTurnsItOn() async throws {
+    let fake = FakeHueTransport()
+    let (status, body) = try await call(app(feed(fake)), .put, "/api/rooms/\(HueFixture.roomB)", body: #"{"level":60}"#)
+    #expect(status == .ok)
+    let room = try JSONDecoder().decode(Room.self, from: Data(body.utf8))
+    #expect(room.on && room.level == 60)
+    let sent = await puts(fake)
+    #expect(sent.count == 1)
+    #expect(sent.first?.body == LightsMapping.hueBody(for: LightPatch(level: 60), dimmable: true))
+}
+
+@Test func setRoomWorksForAZone() async throws {
+    let fake = FakeHueTransport()
+    let (status, body) = try await call(app(feed(fake)), .put, "/api/rooms/\(HueFixture.zone)", body: #"{"on":true,"level":30}"#)
+    #expect(status == .ok)
+    let room = try JSONDecoder().decode(Room.self, from: Data(body.utf8))
+    #expect(room.kind == .zone && room.on && room.level == 30)
+    #expect(await puts(fake).map(\.path) == ["resource/grouped_light/\(HueFixture.grouped(3))"])
+}
+
+@Test func setRoomUnknownOrWithoutGroupedLightIs404() async throws {
+    let fake = FakeHueTransport()
+    let a = app(feed(fake))
+    for id in ["nope", HueFixture.roomC] {
+        let (status, body) = try await call(a, .put, "/api/rooms/\(id)", body: #"{"on":true}"#)
+        #expect(status == .notFound)
+        #expect(body.contains("not_found"))
+    }
+    #expect(await puts(fake).isEmpty)
+}
+
+@Test func setRoomBadBodyIs400AndNothingIsSent() async throws {
+    let fake = FakeHueTransport()
+    let a = app(feed(fake))
+    for bad in ["{}", #"{"level":0}"#, #"{"level":1.5}"#, #"{"on":"yes"}"#, #"{"foo":1}"#, "not json"] {
+        let (status, body) = try await call(a, .put, "/api/rooms/\(HueFixture.roomA)", body: bad)
+        #expect(status == .badRequest)
+        #expect(body.contains("bad_request"))
+    }
+    #expect(await fake.recorded().isEmpty)
+}
+
+@Test func recallSceneSendsOneSceneAndReturnsItActive() async throws {
+    let fake = FakeHueTransport()
+    let id = HueFixture.scene(6)
+    let (status, body) = try await call(app(feed(fake)), .post, "/api/scenes/\(id)/recall")
+    #expect(status == .ok)
+    #expect(!body.contains("null"))
+    let scene = try JSONDecoder().decode(Scene.self, from: Data(body.utf8))
+    #expect(scene == Scene(id: id, room: HueFixture.zone, name: "Dinner", active: true, icon: "utensils"))
+    let sent = await puts(fake)
+    #expect(sent.count == 1)
+    #expect(sent.first?.method == "PUT" && sent.first?.path == "resource/scene/\(id)")
+    #expect(sent.first?.body == LightsMapping.recallBody)
+}
+
+@Test func recallSceneWithoutIconOmitsTheKey() async throws {
+    let (status, body) = try await call(app(feed(FakeHueTransport())), .post, "/api/scenes/\(HueFixture.scene(3))/recall")
+    #expect(status == .ok)
+    #expect(!body.contains("icon"))
+    let scene = try JSONDecoder().decode(Scene.self, from: Data(body.utf8))
+    #expect(scene.active && scene.room == HueFixture.roomB)
+}
+
+@Test func recallUnknownSceneOrOneInADroppedRoomIs404() async throws {
+    let fake = FakeHueTransport()
+    let a = app(feed(fake))
+    for id in ["nope", HueFixture.scene(5)] {
+        let (status, body) = try await call(a, .post, "/api/scenes/\(id)/recall")
+        #expect(status == .notFound)
+        #expect(body.contains("not_found"))
+    }
+    #expect(await puts(fake).isEmpty)
+}
+
+private let roomCalls: [(HTTPRequest.Method, String, String?)] = [
+    (.put, "/api/rooms/\(HueFixture.roomA)", #"{"on":false}"#),
+    (.post, "/api/scenes/\(HueFixture.scene(6))/recall", nil),
+]
+
+@Test func roomAndSceneRoutesAre503WhenNotConfiguredOrNotPaired() async throws {
+    for a in [app(nil), app(feed(nil))] {
+        for (method, uri, body) in roomCalls {
+            let (status, text) = try await call(a, method, uri, body: body)
+            #expect(status == .serviceUnavailable)
+            #expect(text.contains("source_unavailable"))
+        }
+    }
+}
+
+@Test func roomAndSceneRoutesAre503WhenTheBridgeFails() async throws {
+    let unreachable = FakeHueTransport()
+    await unreachable.setFailure(HueClientError.unreachable)
+    let rejected = FakeHueTransport()
+    await rejected.setStatus(401)
+    for fake in [unreachable, rejected] {
+        let a = app(feed(fake))
+        for (method, uri, body) in roomCalls {
+            let (status, _) = try await call(a, method, uri, body: body)
+            #expect(status == .serviceUnavailable)
+        }
+    }
+}
+
+@Test func roomAndSceneRoutesNeedTheCookie() async throws {
+    let fake = FakeHueTransport()
+    let a = app(feed(fake))
+    for (method, uri, body) in roomCalls {
+        let (status, _) = try await call(a, method, uri, body: body, headers: [:])
+        #expect(status == .unauthorized)
+    }
+    #expect(await fake.recorded().isEmpty)
+}
