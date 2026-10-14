@@ -7,7 +7,7 @@ import ServiceLifecycle
 /// The `info.version` of `frame-bridge.openapi.yaml` this build implements.
 public let contractVersion = "0.3.0"
 
-public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: CalendarFeed? = nil, shopping: ShoppingFeed? = nil, events: EventHub = EventHub()) -> Router<FrameRequestContext> {
+public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: CalendarFeed? = nil, shopping: ShoppingFeed? = nil, photos: PhotosFeed? = nil, events: EventHub = EventHub()) -> Router<FrameRequestContext> {
     let router = Router(context: FrameRequestContext.self)
     // Before every route, so none can skip the token check.
     router.add(middleware: FrameTokenMiddleware(store: TokenStore(config: config)))
@@ -32,6 +32,12 @@ public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: 
         guard let shopping else { throw APIError.sourceUnavailable("not configured") }
         return try await shopping.list()
     }
+    router.get("api/photos") { _, _ -> Response in
+        guard let photos else { throw APIError.sourceUnavailable("not configured") }
+        var headers = HTTPFields()
+        headers[.contentType] = "application/json"
+        return Response(status: .ok, headers: headers, body: .init(byteBuffer: ByteBuffer(data: try JSONEncoder().encode(try await photos.list()))))
+    }
     router.get("healthz") { _, _ in
         let calendarHealth: FeedHealth
         if let calendar {
@@ -51,12 +57,18 @@ public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: 
         } else {
             weatherHealth = .notConfigured(staleAfterSeconds: WeatherStore.staleAfterSeconds)
         }
+        let photosHealth: FeedHealth
+        if let photos {
+            photosHealth = await photos.health()
+        } else {
+            photosHealth = .notConfigured(staleAfterSeconds: PhotosFeed.staleAfterSeconds)
+        }
         return Health(feeds: .init(
             calendar: calendarHealth,
             shopping: shoppingHealth,
             lights: .notImplemented(staleAfterSeconds: 120),
             weather: weatherHealth,
-            photos: .notImplemented(staleAfterSeconds: 172800)
+            photos: photosHealth
         ))
     }
     return router
@@ -96,12 +108,26 @@ public func buildApplication(config: Config) -> some ApplicationProtocol {
     if let store {
         eventStoreService = EventStoreService(store: store, debouncer: EventStoreDebouncer(), calendar: calendar, shopping: shopping, events: events)
     }
+    var photos: PhotosFeed?
+    var photosService: PhotosService?
+    if let photosConfig = config.photos {
+        let library = PhotoLibrary()
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches")
+        let cache = PlaceCache(directory: caches.appendingPathComponent("frame-bridge"))
+        let feed = PhotosFeed(config: photosConfig, provider: library, lookup: cache)
+        photos = feed
+        photosService = PhotosService(library: library, feed: feed, cache: cache, geocoder: CLGeocoderSource(), events: events)
+    } else {
+        logger.info("photos not configured")
+    }
     var app = Application(
-        router: buildRouter(config: config, weather: weather, calendar: calendar, shopping: shopping, events: events),
+        router: buildRouter(config: config, weather: weather, calendar: calendar, shopping: shopping, photos: photos, events: events),
         configuration: .init(address: .hostname("0.0.0.0", port: 8787), serverName: "frame-bridge")
     )
     app.addServices(EventPingService(hub: events))
     if let weather { app.addServices(WeatherRefreshService(store: weather)) }
     if let eventStoreService { app.addServices(eventStoreService) }
+    if let photosService { app.addServices(photosService) }
     return app
 }

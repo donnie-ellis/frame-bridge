@@ -17,12 +17,16 @@ public struct Config: Decodable, Sendable {
     /// The Reminders list, stores and keyword maps. Absent: the shopping feed reports "not configured".
     public let shopping: ShoppingConfig?
 
-    public init(frames: [String: String], dashboardDir: String, weather: WeatherConfig? = nil, calendar: CalendarConfig? = nil, shopping: ShoppingConfig? = nil) {
+    /// The shared album to show. Absent: the photos feed reports "not configured".
+    public let photos: PhotosConfig?
+
+    public init(frames: [String: String], dashboardDir: String, weather: WeatherConfig? = nil, calendar: CalendarConfig? = nil, shopping: ShoppingConfig? = nil, photos: PhotosConfig? = nil) {
         self.frames = frames
         self.dashboardDir = dashboardDir
         self.weather = weather
         self.calendar = calendar
         self.shopping = shopping
+        self.photos = photos
     }
 
     public static func decode(_ data: Data) throws -> Config {
@@ -44,6 +48,7 @@ public struct Config: Decodable, Sendable {
         }
         if let c = config.calendar { try c.validate() }
         if let s = config.shopping { try s.validate() }
+        if let p = config.photos { try p.validate() }
         return config
     }
 
@@ -165,6 +170,19 @@ public struct ShoppingConfig: Decodable, Sendable, Equatable {
     }
 }
 
+/// The album title is private: never log it.
+public struct PhotosConfig: Decodable, Sendable, Equatable {
+    public let album: String
+
+    public init(album: String) {
+        self.album = album
+    }
+
+    func validate() throws {
+        if album.isEmpty { throw ConfigError.badPhotos("\"photos.album\" is empty") }
+    }
+}
+
 /// `"all"` or a list of person ids.
 public enum CalendarPeople: Decodable, Sendable, Equatable {
     case all
@@ -195,6 +213,7 @@ public enum ConfigError: Error, CustomStringConvertible, Equatable {
     case badWeather(field: String)
     case badCalendar(String)
     case badShopping(String)
+    case badPhotos(String)
 
     public var description: String {
         switch self {
@@ -205,6 +224,7 @@ public enum ConfigError: Error, CustomStringConvertible, Equatable {
         case .badWeather(let field): "\"weather.\(field)\" is out of range"
         case .badCalendar(let detail): "calendar config: \(detail)"
         case .badShopping(let detail): "shopping config: \(detail)"
+        case .badPhotos(let detail): "photos config: \(detail)"
         case .badHash(let frame): "frame \"\(frame)\" needs a 64-character lowercase hex SHA-256 hash"
         }
     }

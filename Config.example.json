@@ -4,6 +4,7 @@
   },
   "dashboardDir": "/Users/<you>/Library/Application Support/frame-bridge/dashboard",
   "weather": { "latitude": 0.0, "longitude": 0.0, "unit": "celsius" },
+  "photos": { "album": "Frame" },
   "calendar": {
     "people": ["alex", "jordan", "maya", "otto"],
     "calendars": { "Family": "all", "<a calendar title>": ["maya"] }

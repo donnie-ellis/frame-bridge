@@ -125,3 +125,16 @@ private func withShopping(_ shopping: String) -> Data {
         #expect(throws: ConfigError.self) { try Config.decode(withShopping(bad)) }
     }
 }
+
+private func withPhotos(_ photos: String) -> Data {
+    Data("{\"frames\":{\"kitchen\":\"\(good)\"},\"dashboardDir\":\"/tmp/dist\",\"photos\":\(photos)}".utf8)
+}
+
+@Test func photosIsOptionalAndParses() throws {
+    #expect(try Config.decode(json("{\"kitchen\":\"\(good)\"}")).photos == nil)
+    #expect(try Config.decode(withPhotos(#"{"album":"Frame"}"#)).photos == PhotosConfig(album: "Frame"))
+}
+
+@Test func photosRejectsEmptyAlbum() {
+    #expect(throws: ConfigError.badPhotos("\"photos.album\" is empty")) { try Config.decode(withPhotos(#"{"album":""}"#)) }
+}
