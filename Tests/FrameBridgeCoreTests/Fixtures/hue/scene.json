@@ -1,0 +1,86 @@
+{
+  "errors": [],
+  "data": [
+    {
+      "id": "3a9d5e20-0000-4000-8000-000000000001",
+      "metadata": {
+        "name": "Dinner"
+      },
+      "group": {
+        "rid": "0f6c1a9e-0000-4000-8000-000000000001",
+        "rtype": "room"
+      },
+      "type": "scene",
+      "status": {
+        "active": "static"
+      }
+    },
+    {
+      "id": "3a9d5e20-0000-4000-8000-000000000002",
+      "metadata": {
+        "name": "Bright"
+      },
+      "group": {
+        "rid": "0f6c1a9e-0000-4000-8000-000000000001",
+        "rtype": "room"
+      },
+      "type": "scene",
+      "status": {
+        "active": "dynamic_palette"
+      }
+    },
+    {
+      "id": "3a9d5e20-0000-4000-8000-000000000003",
+      "metadata": {
+        "name": "Relax"
+      },
+      "group": {
+        "rid": "0f6c1a9e-0000-4000-8000-000000000002",
+        "rtype": "room"
+      },
+      "type": "scene",
+      "status": {
+        "active": "inactive"
+      }
+    },
+    {
+      "id": "3a9d5e20-0000-4000-8000-000000000004",
+      "metadata": {
+        "name": "Night"
+      },
+      "group": {
+        "rid": "0f6c1a9e-0000-4000-8000-000000000002",
+        "rtype": "room"
+      },
+      "type": "scene"
+    },
+    {
+      "id": "3a9d5e20-0000-4000-8000-000000000005",
+      "metadata": {
+        "name": "Dropped"
+      },
+      "group": {
+        "rid": "0f6c1a9e-0000-4000-8000-000000000003",
+        "rtype": "room"
+      },
+      "type": "scene",
+      "status": {
+        "active": "static"
+      }
+    },
+    {
+      "id": "3a9d5e20-0000-4000-8000-000000000006",
+      "metadata": {
+        "name": "Dinner"
+      },
+      "group": {
+        "rid": "1a7d2bf0-0000-4000-8000-000000000001",
+        "rtype": "zone"
+      },
+      "type": "scene",
+      "status": {
+        "active": "inactive"
+      }
+    }
+  ]
+}

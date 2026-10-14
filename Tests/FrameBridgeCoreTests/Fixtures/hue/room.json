@@ -1,0 +1,65 @@
+{
+  "errors": [],
+  "data": [
+    {
+      "id": "0f6c1a9e-0000-4000-8000-000000000001",
+      "metadata": {
+        "name": "Room A"
+      },
+      "children": [
+        {
+          "rid": "7e3c8d22-0000-4000-8000-000000000001",
+          "rtype": "device"
+        },
+        {
+          "rid": "7e3c8d22-0000-4000-8000-000000000002",
+          "rtype": "device"
+        }
+      ],
+      "services": [
+        {
+          "rid": "2b8e3c01-0000-4000-8000-000000000001",
+          "rtype": "grouped_light"
+        }
+      ],
+      "type": "room"
+    },
+    {
+      "id": "0f6c1a9e-0000-4000-8000-000000000002",
+      "metadata": {
+        "name": "Room B"
+      },
+      "children": [
+        {
+          "rid": "7e3c8d22-0000-4000-8000-000000000003",
+          "rtype": "device"
+        },
+        {
+          "rid": "7e3c8d22-0000-4000-8000-000000000004",
+          "rtype": "device"
+        }
+      ],
+      "services": [
+        {
+          "rid": "2b8e3c01-0000-4000-8000-000000000002",
+          "rtype": "grouped_light"
+        }
+      ],
+      "type": "room"
+    },
+    {
+      "id": "0f6c1a9e-0000-4000-8000-000000000003",
+      "metadata": {
+        "name": "Room C"
+      },
+      "children": [
+        {
+          "rid": "7e3c8d22-0000-4000-8000-000000000006",
+          "rtype": "device"
+        }
+      ],
+      "services": [],
+      "type": "room"
+    }
+  ]
+}

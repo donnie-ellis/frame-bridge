@@ -49,8 +49,4 @@ public struct FeedHealth: Codable, Equatable, Sendable {
     public static func notConfigured(staleAfterSeconds: Int) -> FeedHealth {
         FeedHealth(status: .error, staleAfterSeconds: staleAfterSeconds, detail: "not configured")
     }
-
-    public static func notImplemented(staleAfterSeconds: Int) -> FeedHealth {
-        FeedHealth(status: .error, staleAfterSeconds: staleAfterSeconds, detail: "not implemented")
-    }
 }
