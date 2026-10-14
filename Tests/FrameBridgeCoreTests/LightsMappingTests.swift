@@ -1,0 +1,101 @@
+import Foundation
+import Testing
+
+@testable import FrameBridgeCore
+
+private func state() throws -> LightsState {
+    LightsMapping.state(try HueFixture.resources(), sceneIcons: HueFixture.icons)
+}
+
+@Test func levelRoundsClampsAndDefaults() {
+    #expect(LightsMapping.level(nil) == 100)
+    #expect(LightsMapping.level(0.4) == 1)
+    #expect(LightsMapping.level(0) == 1)
+    #expect(LightsMapping.level(79.6) == 80)
+    #expect(LightsMapping.level(100) == 100)
+}
+
+@Test func lightsInNoRoomAreLeftOut() throws {
+    let ids = try state().devices.map(\.id)
+    #expect(ids == [HueFixture.light(1), HueFixture.light(2), HueFixture.light(3), HueFixture.light(4)])
+}
+
+@Test func lightRoomComesThroughItsDevice() throws {
+    let s = try state()
+    #expect(s.devices.map(\.room) == [HueFixture.roomA, HueFixture.roomA, HueFixture.roomB, HueFixture.roomB])
+}
+
+@Test func offLightKeepsItsLevelAndNoDimmingReports100() throws {
+    let s = try state()
+    let two = try #require(s.devices.first { $0.id == HueFixture.light(2) })
+    #expect(!two.on && two.level == 50)
+    #expect(s.devices.first { $0.id == HueFixture.light(1) }?.level == 80)
+    #expect(s.devices.first { $0.id == HueFixture.light(3) }?.level == 1)
+    #expect(s.devices.first { $0.id == HueFixture.light(4) }?.level == 100)
+}
+
+@Test func roomsComeFromGroupedLightAndKeepOrder() throws {
+    let s = try state()
+    #expect(s.rooms.map(\.id) == [HueFixture.roomA, HueFixture.roomB, HueFixture.zone])
+    #expect(s.rooms.map(\.kind) == [.room, .room, .zone])
+    #expect(s.rooms[0].on && s.rooms[0].level == 80)
+    #expect(!s.rooms[1].on && s.rooms[1].level == 1)
+    #expect(s.rooms[0].lights == [HueFixture.light(1), HueFixture.light(2)])
+}
+
+@Test func zoneListsItsLightsExceptTheRoomlessOne() throws {
+    let zone = try #require(try state().rooms.last)
+    #expect(zone.lights == [HueFixture.light(1), HueFixture.light(3)])
+}
+
+@Test func roomWithoutGroupedLightIsDroppedWithItsLightsAndScenes() throws {
+    let s = try state()
+    #expect(!s.rooms.contains { $0.id == HueFixture.roomC })
+    #expect(!s.devices.contains { $0.id == HueFixture.light(6) })
+    #expect(!s.scenes.contains { $0.room == HueFixture.roomC })
+    #expect(s.scenes.count == 5)
+}
+
+@Test func sceneActiveUnlessInactiveOrMissingStatus() throws {
+    let active = Dictionary(uniqueKeysWithValues: try state().scenes.map { ($0.id, $0.active) })
+    #expect(active[HueFixture.scene(1)] == true)
+    #expect(active[HueFixture.scene(2)] == true)
+    #expect(active[HueFixture.scene(3)] == false)
+    #expect(active[HueFixture.scene(4)] == false)
+}
+
+@Test func sceneInAZoneKeepsTheZoneAsRoom() throws {
+    #expect(try state().scenes.last?.room == HueFixture.zone)
+}
+
+@Test func mappedSceneNameGetsAnIconAndTheEncodedJSONOmitsTheRest() throws {
+    let s = try state()
+    #expect(s.scenes[0].icon == "utensils")
+    #expect(s.scenes[1].icon == nil)
+    let json = String(decoding: try JSONEncoder().encode(s), as: UTF8.self)
+    #expect(!json.contains("null"))
+    let bright = String(decoding: try JSONEncoder().encode(s.scenes[1]), as: UTF8.self)
+    #expect(!bright.contains("icon"))
+}
+
+private func body(_ patch: LightPatch, dimmable: Bool = true) throws -> [String: Any] {
+    try #require(JSONSerialization.jsonObject(with: LightsMapping.hueBody(for: patch, dimmable: dimmable)) as? [String: Any])
+}
+
+@Test func hueBodyShapes() throws {
+    let off = try body(LightPatch(on: false))
+    #expect((off["on"] as? [String: Bool]) == ["on": false])
+    #expect(off["dimming"] == nil)
+
+    let level = try body(LightPatch(level: 60))
+    #expect((level["on"] as? [String: Bool]) == ["on": true])
+    #expect(((level["dimming"] as? [String: Int]) ?? [:]) == ["brightness": 60])
+
+    let plain = try body(LightPatch(level: 60), dimmable: false)
+    #expect((plain["on"] as? [String: Bool]) == ["on": true])
+    #expect(plain["dimming"] == nil)
+
+    let both = try body(LightPatch(on: true, level: 60))
+    #expect((both["on"] as? [String: Bool]) == ["on": true])
+    #expect(((both["dimming"] as? [String: Int]) ?? [:]) == ["brightness": 60])
+}

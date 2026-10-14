@@ -1,0 +1,115 @@
+{
+  "errors": [],
+  "data": [
+    {
+      "id": "6d2b7c11-0000-4000-8000-000000000001",
+      "owner": {
+        "rid": "7e3c8d22-0000-4000-8000-000000000001",
+        "rtype": "device"
+      },
+      "metadata": {
+        "name": "Light One",
+        "archetype": "pendant_round"
+      },
+      "on": {
+        "on": true
+      },
+      "type": "light",
+      "dimming": {
+        "brightness": 79.6,
+        "min_dim_level": 1.0
+      }
+    },
+    {
+      "id": "6d2b7c11-0000-4000-8000-000000000002",
+      "owner": {
+        "rid": "7e3c8d22-0000-4000-8000-000000000002",
+        "rtype": "device"
+      },
+      "metadata": {
+        "name": "Light Two",
+        "archetype": "pendant_round"
+      },
+      "on": {
+        "on": false
+      },
+      "type": "light",
+      "dimming": {
+        "brightness": 50.0,
+        "min_dim_level": 1.0
+      }
+    },
+    {
+      "id": "6d2b7c11-0000-4000-8000-000000000003",
+      "owner": {
+        "rid": "7e3c8d22-0000-4000-8000-000000000003",
+        "rtype": "device"
+      },
+      "metadata": {
+        "name": "Light Three",
+        "archetype": "pendant_round"
+      },
+      "on": {
+        "on": true
+      },
+      "type": "light",
+      "dimming": {
+        "brightness": 0.4,
+        "min_dim_level": 1.0
+      }
+    },
+    {
+      "id": "6d2b7c11-0000-4000-8000-000000000004",
+      "owner": {
+        "rid": "7e3c8d22-0000-4000-8000-000000000004",
+        "rtype": "device"
+      },
+      "metadata": {
+        "name": "Light Four",
+        "archetype": "pendant_round"
+      },
+      "on": {
+        "on": true
+      },
+      "type": "light"
+    },
+    {
+      "id": "6d2b7c11-0000-4000-8000-000000000005",
+      "owner": {
+        "rid": "7e3c8d22-0000-4000-8000-000000000005",
+        "rtype": "device"
+      },
+      "metadata": {
+        "name": "Light Five",
+        "archetype": "pendant_round"
+      },
+      "on": {
+        "on": true
+      },
+      "type": "light",
+      "dimming": {
+        "brightness": 100.0,
+        "min_dim_level": 1.0
+      }
+    },
+    {
+      "id": "6d2b7c11-0000-4000-8000-000000000006",
+      "owner": {
+        "rid": "7e3c8d22-0000-4000-8000-000000000006",
+        "rtype": "device"
+      },
+      "metadata": {
+        "name": "Light Six",
+        "archetype": "pendant_round"
+      },
+      "on": {
+        "on": true
+      },
+      "type": "light",
+      "dimming": {
+        "brightness": 60.0,
+        "min_dim_level": 1.0
+      }
+    }
+  ]
+}

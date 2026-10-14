@@ -138,3 +138,23 @@ private func withPhotos(_ photos: String) -> Data {
 @Test func photosRejectsEmptyAlbum() {
     #expect(throws: ConfigError.badPhotos("\"photos.album\" is empty")) { try Config.decode(withPhotos(#"{"album":""}"#)) }
 }
+
+private func hueJSON(_ hue: String) -> Data {
+    Data("{\"frames\":{\"kitchen\":\"\(good)\"},\"dashboardDir\":\"/tmp/dist\",\"hue\":\(hue)}".utf8)
+}
+
+@Test func configHueIsOptionalAndDefaultsIcons() throws {
+    #expect(try Config.decode(json("{\"kitchen\":\"\(good)\"}")).hue == nil)
+    #expect(try Config.decode(hueJSON(#"{"bridge":"bridge.invalid"}"#)).hue == HueConfig(bridge: "bridge.invalid", sceneIcons: [:]))
+    #expect(try Config.decode(hueJSON(#"{"bridge":"bridge.invalid","sceneIcons":{"Dinner":"utensils"}}"#)).hue?.sceneIcons == ["Dinner": "utensils"])
+}
+
+@Test func configRejectsBadHue() {
+    let bad = [
+        #"{"bridge":""}"#, #"{"bridge":"https://bridge.invalid"}"#, #"{"bridge":"bridge.invalid/x"}"#, #"{"bridge":"a b"}"#,
+        #"{"bridge":"bridge.invalid","sceneIcons":{"":"utensils"}}"#, #"{"bridge":"bridge.invalid","sceneIcons":{"Dinner":""}}"#,
+    ]
+    for hue in bad {
+        #expect(throws: ConfigError.self) { try Config.decode(hueJSON(hue)) }
+    }
+}

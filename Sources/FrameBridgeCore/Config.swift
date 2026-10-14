@@ -20,13 +20,17 @@ public struct Config: Decodable, Sendable {
     /// The shared album to show. Absent: the photos feed reports "not configured".
     public let photos: PhotosConfig?
 
-    public init(frames: [String: String], dashboardDir: String, weather: WeatherConfig? = nil, calendar: CalendarConfig? = nil, shopping: ShoppingConfig? = nil, photos: PhotosConfig? = nil) {
+    /// The Hue Bridge address and scene icons. Absent: the lights feed reports "not configured".
+    public let hue: HueConfig?
+
+    public init(frames: [String: String], dashboardDir: String, weather: WeatherConfig? = nil, calendar: CalendarConfig? = nil, shopping: ShoppingConfig? = nil, photos: PhotosConfig? = nil, hue: HueConfig? = nil) {
         self.frames = frames
         self.dashboardDir = dashboardDir
         self.weather = weather
         self.calendar = calendar
         self.shopping = shopping
         self.photos = photos
+        self.hue = hue
     }
 
     public static func decode(_ data: Data) throws -> Config {
@@ -49,6 +53,7 @@ public struct Config: Decodable, Sendable {
         if let c = config.calendar { try c.validate() }
         if let s = config.shopping { try s.validate() }
         if let p = config.photos { try p.validate() }
+        if let h = config.hue { try h.validate() }
         return config
     }
 
@@ -183,6 +188,38 @@ public struct PhotosConfig: Decodable, Sendable, Equatable {
     }
 }
 
+/// The bridge address is private: never log it. The application key and pinned cert are in the Keychain.
+public struct HueConfig: Decodable, Sendable, Equatable {
+    /// Host or IP only: no scheme or path.
+    public let bridge: String
+    /// Scene name -> icon name in the dashboard's icons.js.
+    public let sceneIcons: [String: String]
+
+    public init(bridge: String, sceneIcons: [String: String] = [:]) {
+        self.bridge = bridge
+        self.sceneIcons = sceneIcons
+    }
+
+    private enum CodingKeys: String, CodingKey { case bridge, sceneIcons }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        bridge = try c.decode(String.self, forKey: .bridge)
+        sceneIcons = try c.decodeIfPresent([String: String].self, forKey: .sceneIcons) ?? [:]
+    }
+
+    static func isValidHost(_ host: String) -> Bool {
+        !host.isEmpty && !host.contains { $0 == "/" || $0.isWhitespace }
+    }
+
+    func validate() throws {
+        if !Self.isValidHost(bridge) { throw ConfigError.badHue("\"hue.bridge\" must be a host name or IP, with no scheme, path or spaces") }
+        if sceneIcons.contains(where: { $0.key.isEmpty || $0.value.isEmpty }) {
+            throw ConfigError.badHue("\"hue.sceneIcons\" has an empty name or icon")
+        }
+    }
+}
+
 /// `"all"` or a list of person ids.
 public enum CalendarPeople: Decodable, Sendable, Equatable {
     case all
@@ -214,6 +251,7 @@ public enum ConfigError: Error, CustomStringConvertible, Equatable {
     case badCalendar(String)
     case badShopping(String)
     case badPhotos(String)
+    case badHue(String)
 
     public var description: String {
         switch self {
@@ -225,6 +263,7 @@ public enum ConfigError: Error, CustomStringConvertible, Equatable {
         case .badCalendar(let detail): "calendar config: \(detail)"
         case .badShopping(let detail): "shopping config: \(detail)"
         case .badPhotos(let detail): "photos config: \(detail)"
+        case .badHue(let detail): "hue config: \(detail)"
         case .badHash(let frame): "frame \"\(frame)\" needs a 64-character lowercase hex SHA-256 hash"
         }
     }

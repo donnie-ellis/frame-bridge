@@ -30,6 +30,6 @@ import Testing
 
 @Test func weatherAloneInErrorIsDegraded() {
     let ok = FeedHealth(status: .ok, staleAfterSeconds: 60)
-    let bad = FeedHealth.notImplemented(staleAfterSeconds: 60)
+    let bad = FeedHealth(status: .error, staleAfterSeconds: 60, detail: "x")
     #expect(Health(feeds: .init(calendar: ok, shopping: ok, lights: ok, weather: bad, photos: ok)).status == .degraded)
 }

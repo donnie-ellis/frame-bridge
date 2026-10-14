@@ -1,0 +1,35 @@
+{
+  "errors": [],
+  "data": [
+    {
+      "id": "2b8e3c01-0000-4000-8000-000000000001",
+      "on": {
+        "on": true
+      },
+      "dimming": {
+        "brightness": 79.6
+      },
+      "type": "grouped_light"
+    },
+    {
+      "id": "2b8e3c01-0000-4000-8000-000000000002",
+      "on": {
+        "on": false
+      },
+      "dimming": {
+        "brightness": 0.4
+      },
+      "type": "grouped_light"
+    },
+    {
+      "id": "2b8e3c01-0000-4000-8000-000000000003",
+      "on": {
+        "on": true
+      },
+      "dimming": {
+        "brightness": 50.0
+      },
+      "type": "grouped_light"
+    }
+  ]
+}

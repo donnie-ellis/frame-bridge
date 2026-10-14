@@ -7,7 +7,7 @@ import ServiceLifecycle
 /// The `info.version` of `frame-bridge.openapi.yaml` this build implements.
 public let contractVersion = "0.3.0"
 
-public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: CalendarFeed? = nil, shopping: ShoppingFeed? = nil, photos: PhotosFeed? = nil, images: ImageCache? = nil, events: EventHub = EventHub()) -> Router<FrameRequestContext> {
+public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: CalendarFeed? = nil, shopping: ShoppingFeed? = nil, photos: PhotosFeed? = nil, images: ImageCache? = nil, lights: LightsFeed? = nil, events: EventHub = EventHub()) -> Router<FrameRequestContext> {
     let router = Router(context: FrameRequestContext.self)
     // Before every route, so none can skip the token check.
     router.add(middleware: FrameTokenMiddleware(store: TokenStore(config: config)))
@@ -50,6 +50,18 @@ public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: 
         headers[.cacheControl] = "max-age=86400"
         return Response(status: .ok, headers: headers, body: .init(byteBuffer: ByteBuffer(data: data)))
     }
+    router.get("api/lights") { _, _ -> LightsState in
+        guard let lights else { throw APIError.sourceUnavailable("not configured") }
+        return try await lights.state()
+    }
+    router.put("api/lights/:id") { request, context -> Light in
+        guard let lights else { throw APIError.sourceUnavailable("not configured") }
+        guard let id = context.parameters.get("id")?.removingPercentEncoding else { throw APIError.notFound }
+        let body: ByteBuffer
+        do { body = try await request.body.collect(upTo: 4096) } catch { throw APIError.badRequest("body too large") }
+        let patch = try LightPatch.parse(Data(buffer: body))
+        return try await lights.set(id: id, patch: patch)
+    }
     router.get("healthz") { _, _ in
         let calendarHealth: FeedHealth
         if let calendar {
@@ -69,6 +81,12 @@ public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: 
         } else {
             weatherHealth = .notConfigured(staleAfterSeconds: WeatherStore.staleAfterSeconds)
         }
+        let lightsHealth: FeedHealth
+        if let lights {
+            lightsHealth = await lights.health()
+        } else {
+            lightsHealth = .notConfigured(staleAfterSeconds: LightsFeed.staleAfterSeconds)
+        }
         let photosHealth: FeedHealth
         if let photos {
             photosHealth = await photos.health()
@@ -78,7 +96,7 @@ public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: 
         return Health(feeds: .init(
             calendar: calendarHealth,
             shopping: shoppingHealth,
-            lights: .notImplemented(staleAfterSeconds: 120),
+            lights: lightsHealth,
             weather: weatherHealth,
             photos: photosHealth
         ))
@@ -136,13 +154,32 @@ public func buildApplication(config: Config) -> some ApplicationProtocol {
     } else {
         logger.info("photos not configured")
     }
+    var lights: LightsFeed?
+    var lightsService: LightsService?
+    if let hueConfig = config.hue {
+        var client: HueClient?
+        do {
+            if let credentials = try KeychainHueCredentialStore().load() {
+                client = HueClient(transport: URLSessionHueTransport(bridge: hueConfig.bridge, applicationKey: credentials.applicationKey, pin: credentials.certificateSHA256))
+            }
+        } catch {
+            logger.warning("hue credentials could not be read from the Keychain")
+        }
+        if client == nil { logger.warning("hue not paired: run FrameBridge hue-pair <bridge ip>") }
+        let feed = LightsFeed(config: hueConfig, client: client)
+        lights = feed
+        if client != nil { lightsService = LightsService(feed: feed) }
+    } else {
+        logger.info("lights not configured")
+    }
     var app = Application(
-        router: buildRouter(config: config, weather: weather, calendar: calendar, shopping: shopping, photos: photos, images: images, events: events),
+        router: buildRouter(config: config, weather: weather, calendar: calendar, shopping: shopping, photos: photos, images: images, lights: lights, events: events),
         configuration: .init(address: .hostname("0.0.0.0", port: 8787), serverName: "frame-bridge")
     )
     app.addServices(EventPingService(hub: events))
     if let weather { app.addServices(WeatherRefreshService(store: weather)) }
     if let eventStoreService { app.addServices(eventStoreService) }
     if let photosService { app.addServices(photosService) }
+    if let lightsService { app.addServices(lightsService) }
     return app
 }
