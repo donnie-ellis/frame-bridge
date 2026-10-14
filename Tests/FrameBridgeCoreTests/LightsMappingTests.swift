@@ -99,3 +99,26 @@ private func body(_ patch: LightPatch, dimmable: Bool = true) throws -> [String:
     #expect((both["on"] as? [String: Bool]) == ["on": true])
     #expect(((both["dimming"] as? [String: Int]) ?? [:]) == ["brightness": 60])
 }
+
+@Test func groupedLightIDForRoomsAndZones() throws {
+    let r = try HueFixture.resources()
+    #expect(LightsMapping.groupedLightID(ofGroup: HueFixture.roomA, in: r) == HueFixture.grouped(1))
+    #expect(LightsMapping.groupedLightID(ofGroup: HueFixture.roomB, in: r) == HueFixture.grouped(2))
+    #expect(LightsMapping.groupedLightID(ofGroup: HueFixture.zone, in: r) == HueFixture.grouped(3))
+    #expect(LightsMapping.groupedLightID(ofGroup: HueFixture.roomC, in: r) == nil)
+    #expect(LightsMapping.groupedLightID(ofGroup: "nope", in: r) == nil)
+}
+
+@Test func roomAfterTakesOnAndLevelFromTheGroupedLight() throws {
+    let base = Room(id: "r", name: "N", kind: .zone, on: true, level: 10, lights: ["a"])
+    func grouped(_ json: String) throws -> HueGroupedLight { try JSONDecoder().decode(HueGroupedLight.self, from: Data(json.utf8)) }
+    let off = LightsMapping.room(base, after: try grouped(#"{"id":"g","on":{"on":false},"dimming":{"brightness":0.4}}"#))
+    #expect(off == Room(id: "r", name: "N", kind: .zone, on: false, level: 1, lights: ["a"]))
+    let plain = LightsMapping.room(base, after: try grouped(#"{"id":"g","on":{"on":true}}"#))
+    #expect(plain.on && plain.level == 100)
+}
+
+@Test func recallBodyIsTheSpecBody() throws {
+    let object = try #require(JSONSerialization.jsonObject(with: LightsMapping.recallBody) as? [String: [String: String]])
+    #expect(object == ["recall": ["action": "active"]])
+}

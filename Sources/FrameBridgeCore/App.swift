@@ -62,6 +62,19 @@ public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: 
         let patch = try LightPatch.parse(Data(buffer: body))
         return try await lights.set(id: id, patch: patch)
     }
+    router.put("api/rooms/:id") { request, context -> Room in
+        guard let lights else { throw APIError.sourceUnavailable("not configured") }
+        guard let id = context.parameters.get("id")?.removingPercentEncoding else { throw APIError.notFound }
+        let body: ByteBuffer
+        do { body = try await request.body.collect(upTo: 4096) } catch { throw APIError.badRequest("body too large") }
+        let patch = try LightPatch.parse(Data(buffer: body))
+        return try await lights.setRoom(id: id, patch: patch)
+    }
+    router.post("api/scenes/:id/recall") { _, context -> Scene in
+        guard let lights else { throw APIError.sourceUnavailable("not configured") }
+        guard let id = context.parameters.get("id")?.removingPercentEncoding else { throw APIError.notFound }
+        return try await lights.recallScene(id: id)
+    }
     router.get("healthz") { _, _ in
         let calendarHealth: FeedHealth
         if let calendar {

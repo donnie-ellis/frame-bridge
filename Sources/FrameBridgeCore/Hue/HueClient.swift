@@ -37,6 +37,19 @@ struct HueClient: Sendable {
         _ = try await request("PUT", "resource/light/\(id)", body: body)
     }
 
+    func groupedLight(id: String) async throws -> HueGroupedLight {
+        guard let first = try await list("resource/grouped_light/\(id)", as: HueGroupedLight.self).first else { throw HueClientError.notFound }
+        return first
+    }
+
+    func putGroupedLight(id: String, body: Data) async throws {
+        _ = try await request("PUT", "resource/grouped_light/\(id)", body: body)
+    }
+
+    func putScene(id: String, body: Data) async throws {
+        _ = try await request("PUT", "resource/scene/\(id)", body: body)
+    }
+
     private func list<T: Decodable & Sendable>(_ path: String, as: T.Type = T.self) async throws -> [T] {
         let data = try await request("GET", path, body: nil)
         do {

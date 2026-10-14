@@ -71,6 +71,44 @@ public actor LightsFeed {
         }
     }
 
+    /// The snapshot, or a fresh read when there is none or `known` doesn't find the id in it.
+    private func resources(containing known: (HueResources) -> Bool) async throws(APIError) -> HueResources {
+        if let snapshot, known(snapshot) { return snapshot }
+        return try await fetch()
+    }
+
+    func setRoom(id: String, patch: LightPatch) async throws(APIError) -> Room {
+        guard let client else { throw .sourceUnavailable(Self.notPaired) }
+        let resources = try await resources { LightsMapping.groupedLightID(ofGroup: id, in: $0) != nil }
+        guard let groupedID = LightsMapping.groupedLightID(ofGroup: id, in: resources),
+              let grouped = resources.groupedLights.first(where: { $0.id == groupedID }),
+              let room = LightsMapping.state(resources, sceneIcons: [:]).rooms.first(where: { $0.id == id })
+        else { throw Self.noRoom }
+        do {
+            try await client.putGroupedLight(id: groupedID, body: LightsMapping.hueBody(for: patch, dimmable: grouped.dimming != nil))
+            let updated = try await client.groupedLight(id: groupedID)
+            return LightsMapping.room(room, after: updated)
+        } catch {
+            throw Self.apiError(error, notFound: Self.noRoom)
+        }
+    }
+
+    func recallScene(id: String) async throws(APIError) -> Scene {
+        guard let client else { throw .sourceUnavailable(Self.notPaired) }
+        let resources = try await resources { r in LightsMapping.state(r, sceneIcons: [:]).scenes.contains { $0.id == id } }
+        guard var scene = LightsMapping.state(resources, sceneIcons: config.sceneIcons).scenes.first(where: { $0.id == id })
+        else { throw Self.noScene }
+        do {
+            try await client.putScene(id: id, body: LightsMapping.recallBody)
+        } catch {
+            throw Self.apiError(error, notFound: Self.noScene)
+        }
+        scene.active = true
+        return scene
+    }
+
+    private static let noRoom = APIError(error: "not_found", detail: "no room with that id", status: .notFound)
+    private static let noScene = APIError(error: "not_found", detail: "no scene with that id", status: .notFound)
     private static let noLight = APIError(error: "not_found", detail: "no light with that id", status: .notFound)
 
     private static func apiError(_ error: any Error, notFound: APIError) -> APIError {
