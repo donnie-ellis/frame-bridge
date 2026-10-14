@@ -1,5 +1,6 @@
 import Foundation
 import Logging
+import AppKit
 import Photos
 
 /// The PhotoKit adapter. Read only: nothing here calls performChanges or sets a favorite.
@@ -133,5 +134,64 @@ final class PhotoLibrary: NSObject, PHPhotoLibraryChangeObserver, PhotoProvider,
             return (onChange, hit)
         }
         if relevant { callback?() }
+    }
+}
+
+struct PhotoImageError: Error {}
+
+/// Settles the image request exactly once, from the PhotoKit callback or the timeout.
+private final class ImageRequest: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<CGImage, any Error>?
+    private var finished = false
+    private var requestID: PHImageRequestID?
+
+    func start(_ continuation: CheckedContinuation<CGImage, any Error>) { lock.withLock { self.continuation = continuation } }
+    func set(requestID: PHImageRequestID) { lock.withLock { self.requestID = requestID } }
+
+    func finish(_ result: Result<CGImage, any Error>) {
+        let (c, id) = lock.withLock { () -> (CheckedContinuation<CGImage, any Error>?, PHImageRequestID?) in
+            guard !finished else { return (nil, nil) }
+            finished = true
+            return (continuation, requestID)
+        }
+        guard let c else { return }
+        if case .failure = result, let id { PHImageManager.default().cancelImageRequest(id) }
+        c.resume(with: result)
+    }
+}
+
+extension PhotoLibrary: ImageSource {
+    static let imageTimeout: Duration = .seconds(30)
+
+    /// Read only: a fetch by identifier and one image request. iCloud originals are downloaded.
+    func image(id: String, maxEdge: Int) async throws -> CGImage {
+        let auth = await authorization()
+        guard auth == .authorized || auth == .limited else { throw PhotoImageError() }
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else { throw PhotoImageError() }
+        let options = PHImageRequestOptions()
+        options.deliveryMode = .highQualityFormat
+        options.isNetworkAccessAllowed = true
+        options.isSynchronous = false
+        let request = ImageRequest()
+        let timeout = Task {
+            try await Task.sleep(for: Self.imageTimeout)
+            request.finish(.failure(PhotoImageError()))
+        }
+        defer { timeout.cancel() }
+        return try await withCheckedThrowingContinuation { continuation in
+            request.start(continuation)
+            let requestID = PHImageManager.default().requestImage(
+                for: asset, targetSize: CGSize(width: maxEdge, height: maxEdge), contentMode: .aspectFit, options: options
+            ) { image, info in
+                let cancelled = (info?[PHImageCancelledKey] as? Bool) == true
+                if !cancelled, let cg = image?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                    request.finish(.success(cg))
+                } else {
+                    request.finish(.failure(PhotoImageError()))
+                }
+            }
+            request.set(requestID: requestID)
+        }
     }
 }

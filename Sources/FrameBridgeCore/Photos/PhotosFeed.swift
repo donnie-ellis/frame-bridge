@@ -68,6 +68,12 @@ public actor PhotosFeed {
         return photos
     }
 
+    func contains(id: String) async throws(APIError) -> Bool {
+        try await list().contains { $0.id == id }
+    }
+
+    func currentIDs() -> [String] { photos?.map(\.id) ?? [] }
+
     /// Rebuilds the list and reports whether it differs from the previous build. The first build
     /// is the baseline and reports false.
     func rebuild() async -> Bool {

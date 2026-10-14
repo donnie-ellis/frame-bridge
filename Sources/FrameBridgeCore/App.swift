@@ -7,7 +7,7 @@ import ServiceLifecycle
 /// The `info.version` of `frame-bridge.openapi.yaml` this build implements.
 public let contractVersion = "0.3.0"
 
-public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: CalendarFeed? = nil, shopping: ShoppingFeed? = nil, photos: PhotosFeed? = nil, events: EventHub = EventHub()) -> Router<FrameRequestContext> {
+public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: CalendarFeed? = nil, shopping: ShoppingFeed? = nil, photos: PhotosFeed? = nil, images: ImageCache? = nil, events: EventHub = EventHub()) -> Router<FrameRequestContext> {
     let router = Router(context: FrameRequestContext.self)
     // Before every route, so none can skip the token check.
     router.add(middleware: FrameTokenMiddleware(store: TokenStore(config: config)))
@@ -37,6 +37,18 @@ public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: 
         var headers = HTTPFields()
         headers[.contentType] = "application/json"
         return Response(status: .ok, headers: headers, body: .init(byteBuffer: ByteBuffer(data: try JSONEncoder().encode(try await photos.list()))))
+    }
+    router.get("api/photos/:id/image") { request, context -> Response in
+        guard let photos, let images else { throw APIError.sourceUnavailable("not configured") }
+        // Routing sees the raw path, so an encoded `/` in the id arrives still encoded.
+        guard let id = context.parameters.get("id")?.removingPercentEncoding else { throw APIError.notFound }
+        guard try await photos.contains(id: id) else { throw APIError.notFound }
+        let size = ImageSize(query: request.uri.queryParameters["size"].map(String.init))
+        let data = try await images.jpeg(id: id, size: size)
+        var headers = HTTPFields()
+        headers[.contentType] = "image/jpeg"
+        headers[.cacheControl] = "max-age=86400"
+        return Response(status: .ok, headers: headers, body: .init(byteBuffer: ByteBuffer(data: data)))
     }
     router.get("healthz") { _, _ in
         let calendarHealth: FeedHealth
@@ -110,19 +122,22 @@ public func buildApplication(config: Config) -> some ApplicationProtocol {
     }
     var photos: PhotosFeed?
     var photosService: PhotosService?
+    var images: ImageCache?
     if let photosConfig = config.photos {
         let library = PhotoLibrary()
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches")
         let cache = PlaceCache(directory: caches.appendingPathComponent("frame-bridge"))
         let feed = PhotosFeed(config: photosConfig, provider: library, lookup: cache)
+        let imageCache = ImageCache(directory: caches.appendingPathComponent("frame-bridge/images"), source: library)
         photos = feed
-        photosService = PhotosService(library: library, feed: feed, cache: cache, geocoder: CLGeocoderSource(), events: events)
+        images = imageCache
+        photosService = PhotosService(library: library, feed: feed, cache: cache, images: imageCache, geocoder: CLGeocoderSource(), events: events)
     } else {
         logger.info("photos not configured")
     }
     var app = Application(
-        router: buildRouter(config: config, weather: weather, calendar: calendar, shopping: shopping, photos: photos, events: events),
+        router: buildRouter(config: config, weather: weather, calendar: calendar, shopping: shopping, photos: photos, images: images, events: events),
         configuration: .init(address: .hostname("0.0.0.0", port: 8787), serverName: "frame-bridge")
     )
     app.addServices(EventPingService(hub: events))
