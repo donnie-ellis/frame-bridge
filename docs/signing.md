@@ -45,7 +45,9 @@ switch in Settings again (see "First deploy").
    ```
 
 ## First deploy of a signed build (on the Mac mini)
-1. Install with `deploy-bridge` as usual.
+1. Install with `deploy-bridge` as usual: copy `build/FrameBridge.app`,
+   `launchd/local.frame-bridge.plist` and `scripts/install.sh` to one folder on the Mac mini, then
+   run `sh install.sh` there as the auto-login user.
 2. Under launchd there's no prompt: the first start is denied. Open System Settings → Privacy &
    Security and switch **FrameBridge** on under **Photos**, **Calendars** (Full Access) and
    **Reminders** (Full Access).
