@@ -28,7 +28,7 @@ enum ItemMapping {
         return (qty, String(trimmed[nameRange]))
     }
 
-    /// The key whose keywords match `text` as a whole word, case-insensitively. The longest keyword wins;
+    /// The key whose keywords match `text` as a whole word (or a simple plural of it), case-insensitively. The longest keyword wins;
     /// ties go to the smaller key, then the smaller keyword.
     static func match(_ text: String, keywords: [String: [String]]) -> String? {
         let haystack = text.lowercased()
@@ -36,11 +36,20 @@ enum ItemMapping {
         for key in keywords.keys.sorted() {
             for keyword in keywords[key, default: []].sorted() {
                 let k = keyword.lowercased()
-                guard !k.isEmpty, containsWholeWord(haystack, k) else { continue }
+                guard !k.isEmpty, pluralForms(k).contains(where: { containsWholeWord(haystack, $0) }) else { continue }
                 if best == nil || k.count > best!.keyword.count { best = (key, k) }
             }
         }
         return best?.key
+    }
+
+    // +s, +es, and consonant+y -> ies. Multi-word keywords pluralize their last word.
+    private static func pluralForms(_ k: String) -> [String] {
+        var forms = [k, k + "s", k + "es"]
+        if k.hasSuffix("y"), let prev = k.dropLast().last, prev.isLetter, !"aeiou".contains(prev) {
+            forms.append(k.dropLast() + "ies")
+        }
+        return forms
     }
 
     private static func containsWholeWord(_ haystack: String, _ word: String) -> Bool {

@@ -30,7 +30,7 @@ func quantityForms(title: String, qty: Int, name: String) {
     func cat(_ t: String) -> ShoppingItem.Category { ItemMapping.item(r("1", t), config: config).cat }
     #expect(cat("Apple") == .produce)
     #expect(cat("pineapple") == .produce)
-    #expect(cat("green apples") == .other)
+    #expect(cat("green apples") == .produce)
     #expect(cat("Paper towels") == .household)
     #expect(cat("Unsalted BUTTER, 2 lb") == .dairyAndEggs)
     #expect(cat("widgets") == .other)
@@ -80,4 +80,24 @@ func quantityForms(title: String, qty: Int, name: String) {
     #expect(json.contains("\"cat\":\"Dairy & Eggs\""))
     #expect(!json.contains("null"))
     #expect(ShoppingItem.Category.allCases.map(\.rawValue) == ["Produce", "Bakery", "Meat & Fish", "Dairy & Eggs", "Pantry", "Frozen", "Snacks", "Household", "Other"])
+}
+
+@Test func pluralsMatch() {
+    #expect(ItemMapping.match("Bananas", keywords: ["a": ["banana"]]) == "a")
+    #expect(ItemMapping.match("3 tomatoes", keywords: ["a": ["tomato"]]) == "a")
+    #expect(ItemMapping.match("peaches", keywords: ["a": ["peach"]]) == "a")
+    #expect(ItemMapping.match("Berries", keywords: ["a": ["berry"]]) == "a")
+    #expect(ItemMapping.match("paper towels", keywords: ["a": ["paper towel"]]) == "a")
+    #expect(ItemMapping.match("bananas", keywords: ["a": ["bananas"]]) == "a")
+}
+
+@Test func pluralsStayWholeWord() {
+    #expect(ItemMapping.match("applesauce", keywords: ["a": ["apple"]]) == nil)
+    #expect(ItemMapping.match("pineapple", keywords: ["a": ["apple"]]) == nil)
+    #expect(ItemMapping.match("peanut", keywords: ["a": ["pea"]]) == nil)
+}
+
+@Test func longestKeywordWinsWithPlural() {
+    #expect(ItemMapping.match("peanut butters", keywords: ["a": ["butter"], "b": ["peanut butter"]]) == "b")
+    #expect(ItemMapping.match("peanut butters", keywords: ["b": ["butter"], "a": ["peanut butter"]]) == "a")
 }
