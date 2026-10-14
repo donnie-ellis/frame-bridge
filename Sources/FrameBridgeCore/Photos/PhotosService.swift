@@ -8,6 +8,7 @@ struct PhotosService: Service {
     let library: PhotoLibrary
     let feed: PhotosFeed
     let cache: PlaceCache
+    let images: ImageCache
     let geocoder: any ReverseGeocoding
     let events: EventHub
     let debouncer = EventStoreDebouncer(interval: .seconds(2))
@@ -16,8 +17,13 @@ struct PhotosService: Service {
     func run() async throws {
         await library.requestAccess()
         _ = await feed.rebuild()
-        let feed = feed, events = events, debouncer = debouncer
-        await debouncer.subscribe { if await feed.rebuild() { await events.photosChanged() } }
+        await images.prune(keeping: await feed.currentIDs())
+        let feed = feed, events = events, debouncer = debouncer, images = images
+        await debouncer.subscribe {
+            let changed = await feed.rebuild()
+            await images.prune(keeping: await feed.currentIDs())
+            if changed { await events.photosChanged() }
+        }
         await observeIfAuthorized()
         await cancelWhenGracefulShutdown {
             await withTaskGroup(of: Void.self) { group in
@@ -38,7 +44,9 @@ struct PhotosService: Service {
     }
 
     private func notifyIfChanged() async {
-        if await feed.rebuild() { await events.photosChanged() }
+        let changed = await feed.rebuild()
+        await images.prune(keeping: await feed.currentIDs())
+        if changed { await events.photosChanged() }
     }
 
     /// The daily re-sample.
