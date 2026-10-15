@@ -31,7 +31,7 @@ struct LightPatch: Equatable, Sendable {
         return patch
     }
 
-    private static func isBool(_ value: Any) -> Bool {
+    static func isBool(_ value: Any) -> Bool {
         guard let number = value as? NSNumber else { return false }
         return CFGetTypeID(number) == CFBooleanGetTypeID()
     }
