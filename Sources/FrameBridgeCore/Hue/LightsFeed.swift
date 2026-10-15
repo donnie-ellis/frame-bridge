@@ -1,8 +1,9 @@
 import Foundation
 import Logging
 
-/// Reads and sets lights through the Hue Bridge. Keeps the last snapshot for health and for
-/// looking up a light's room on PUT.
+/// Reads and sets lights through the Hue Bridge. While the event stream is connected, the cached
+/// snapshot is kept current from the stream and served without asking the bridge. Changes to it
+/// go out as SSE events.
 public actor LightsFeed {
     public static let staleAfterSeconds = 120
 
@@ -13,19 +14,81 @@ public actor LightsFeed {
     private var inFlight: Task<HueResources, any Error>?
     private var snapshot: HueResources?
     private var lastRead: Date?
-    private var lastError: String?
+    private var connected = false
+    private var lastStreamError: String?
+    private let events: EventHub?
+    private let resyncDebouncer: EventStoreDebouncer
+    private var resyncSubscribed = false
 
-    init(config: HueConfig, client: HueClient?, logger: Logger = Logger(label: "frame-bridge.lights"), now: @escaping @Sendable () -> Date = Date.init) {
+    init(config: HueConfig, client: HueClient?, logger: Logger = Logger(label: "frame-bridge.lights"), now: @escaping @Sendable () -> Date = Date.init,
+         events: EventHub? = nil, resyncInterval: Duration = .seconds(2)) {
         self.config = config
         self.client = client
         self.logger = logger
         self.now = now
+        self.events = events
+        self.resyncDebouncer = EventStoreDebouncer(interval: resyncInterval)
     }
 
     private static let notPaired = "not paired: run FrameBridge hue-pair <bridge ip>"
 
     func state() async throws(APIError) -> LightsState {
-        LightsMapping.state(try await fetch(), sceneIcons: config.sceneIcons)
+        if connected, let snapshot { return LightsMapping.state(snapshot, sceneIcons: config.sceneIcons) }
+        return LightsMapping.state(try await fetch(), sceneIcons: config.sceneIcons)
+    }
+
+    /// The only writer of the snapshot. Sends the in-place events for what changed, then one
+    /// `lights` notice when the set of ids changed. The first read sends nothing.
+    private func replaceCache(_ new: HueResources) async {
+        let old = snapshot
+        snapshot = new
+        lastRead = now()
+        guard let old, let events else { return }
+        let before = LightsMapping.state(old, sceneIcons: config.sceneIcons)
+        let after = LightsMapping.state(new, sceneIcons: config.sceneIcons)
+        for event in HueEventMerge.events(from: before, to: after) { await events.send(event) }
+        if HueEventMerge.idsChanged(before, after) { await events.lightsChanged() }
+    }
+
+    /// One full read after the stream (re)connects. Not connected until it succeeds.
+    func streamOpened() async throws {
+        guard let client else { throw HueClientError.unreachable }
+        await replaceCache(try await client.resources())
+        connected = true
+        lastStreamError = nil
+    }
+
+    func streamClosed(reason: String) {
+        connected = false
+        lastStreamError = reason
+    }
+
+    /// One stream message: merge it into a copy of the cache. When the cache can't follow, one
+    /// debounced full read follows the burst.
+    func apply(payload: String) async {
+        guard connected, var copy = snapshot else { return }
+        let needsResync = HueEventMerge.apply(HueEventDecoder.batches(in: payload), to: &copy)
+        if copy != snapshot { await replaceCache(copy) }
+        if needsResync {
+            if !resyncSubscribed {
+                resyncSubscribed = true
+                await resyncDebouncer.subscribe { [weak self] in await self?.resync() }
+            }
+            await resyncDebouncer.poke()
+        }
+    }
+
+    private func resync() async {
+        guard connected, let client else { return }
+        do {
+            await replaceCache(try await client.resources())
+        } catch {
+            logger.warning("hue resync failed", metadata: ["reason": .string(Self.reason(for: error))])
+        }
+    }
+
+    static func reason(for error: any Error) -> String {
+        apiError(error, notFound: .sourceUnavailable("Hue Bridge not reachable")).detail ?? "Hue Bridge not reachable"
     }
 
     /// Concurrent callers share one fetch, so the bridge sees six requests, not six each.
@@ -41,15 +104,11 @@ public actor LightsFeed {
         do {
             let resources = try await task.value
             inFlight = nil
-            snapshot = resources
-            lastRead = now()
-            lastError = nil
+            await replaceCache(resources)
             return resources
         } catch {
             inFlight = nil
-            let apiError = Self.apiError(error, notFound: .sourceUnavailable("Hue Bridge not reachable"))
-            lastError = apiError.detail
-            throw apiError
+            throw Self.apiError(error, notFound: .sourceUnavailable("Hue Bridge not reachable"))
         }
     }
 
@@ -122,9 +181,8 @@ public actor LightsFeed {
     func health() -> FeedHealth {
         let stale = Self.staleAfterSeconds
         guard client != nil else { return FeedHealth(status: .error, staleAfterSeconds: stale, detail: "not paired") }
-        let updated = lastRead.map { WireDate.string(from: $0) }
-        if let lastError { return FeedHealth(status: .error, staleAfterSeconds: stale, detail: lastError, updatedAt: updated) }
-        guard let updated else { return FeedHealth(status: .error, staleAfterSeconds: stale, detail: "not read yet") }
-        return FeedHealth(status: .ok, staleAfterSeconds: stale, updatedAt: updated)
+        if connected { return FeedHealth(status: .ok, staleAfterSeconds: stale, updatedAt: WireDate.string(from: now())) }
+        return FeedHealth(status: .error, staleAfterSeconds: stale, detail: lastStreamError ?? "Hue event stream not connected",
+                          updatedAt: lastRead.map { WireDate.string(from: $0) })
     }
 }

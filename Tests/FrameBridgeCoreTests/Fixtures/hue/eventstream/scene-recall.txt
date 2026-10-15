@@ -1,0 +1,6 @@
+id: 1760000010:0
+data: [{"creationtime":"2026-10-12T21:05:00Z","data":[{"id":"3a9d5e20-0000-4000-8000-000000000003","status":{"active":"static"},"type":"scene"}],"id":"aaaa0000-0000-4000-8000-000000000011","type":"update"},{"creationtime":"2026-10-12T21:05:00Z","data":[{"id":"3a9d5e20-0000-4000-8000-000000000001","status":{"active":"inactive"},"type":"scene"}],"id":"aaaa0000-0000-4000-8000-000000000012","type":"update"}]
+
+id: 1760000011:0
+data: [{"creationtime":"2026-10-12T21:05:01Z","data":[{"id":"6d2b7c11-0000-4000-8000-000000000002","on":{"on":true},"type":"light"},{"id":"2b8e3c01-0000-4000-8000-000000000002","on":{"on":true},"type":"grouped_light"}],"id":"aaaa0000-0000-4000-8000-000000000013","type":"update"}]
+

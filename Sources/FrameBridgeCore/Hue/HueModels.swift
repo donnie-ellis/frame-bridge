@@ -19,9 +19,9 @@ struct HueLight: Decodable, Equatable, Sendable {
     struct Dimming: Decodable, Equatable, Sendable { let brightness: Double }
     let id: String
     let owner: HueRef
-    let metadata: HueMetadata
-    let on: On
-    let dimming: Dimming?
+    var metadata: HueMetadata
+    var on: On
+    var dimming: Dimming?
 }
 
 struct HueDevice: Decodable, Equatable, Sendable {
@@ -32,23 +32,23 @@ struct HueDevice: Decodable, Equatable, Sendable {
 /// A room or a zone.
 struct HueGroup: Decodable, Equatable, Sendable {
     let id: String
-    let metadata: HueMetadata
-    let children: [HueRef]
+    var metadata: HueMetadata
+    var children: [HueRef]
     let services: [HueRef]
 }
 
 struct HueGroupedLight: Decodable, Equatable, Sendable {
     let id: String
-    let on: HueLight.On?
-    let dimming: HueLight.Dimming?
+    var on: HueLight.On?
+    var dimming: HueLight.Dimming?
 }
 
 struct HueScene: Decodable, Equatable, Sendable {
     struct Status: Decodable, Equatable, Sendable { let active: String }
     let id: String
-    let metadata: HueMetadata
+    var metadata: HueMetadata
     let group: HueRef
-    let status: Status?
+    var status: Status?
 }
 
 /// One snapshot of everything the mapping needs.

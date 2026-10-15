@@ -19,6 +19,11 @@ enum HueFixture {
         return try Data(contentsOf: url)
     }
 
+    static func text(_ name: String) throws -> String {
+        let url = try #require(Bundle.module.url(forResource: name, withExtension: "txt", subdirectory: "Fixtures/hue/eventstream"))
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
     private static func list<T: Decodable & Sendable>(_ name: String, _ type: T.Type) throws -> [T] {
         try JSONDecoder().decode(HueEnvelope<T>.self, from: data(name)).data
     }
@@ -41,9 +46,12 @@ actor FakeHueTransport: HueTransport {
     private var groupedOverride: [String: [String: Any]] = [:]
     var failure: (any Error)?
     var statusOverride: Int?
+    var hiddenScene: String?
 
     func setFailure(_ error: (any Error)?) { failure = error }
     func setStatus(_ status: Int?) { statusOverride = status }
+    /// Leaves one scene out of the scene list, as if it didn't exist yet.
+    func hideScene(_ id: String?) { hiddenScene = id }
 
     func send(method: String, path: String, body: Data?) async throws -> (status: Int, data: Data) {
         requests.append(Request(method: method, path: path, body: body))
@@ -93,6 +101,11 @@ actor FakeHueTransport: HueTransport {
             let all = try JSONSerialization.jsonObject(with: HueFixture.data("light")) as? [String: Any]
             var items = (all?["data"] as? [[String: Any]]) ?? []
             for i in items.indices { apply(lightOverride[items[i]["id"] as? String ?? ""], to: &items[i]) }
+            return (200, try JSONSerialization.data(withJSONObject: ["errors": [], "data": items]))
+        }
+        if rest == "scene", let hiddenScene {
+            let all = try JSONSerialization.jsonObject(with: HueFixture.data("scene")) as? [String: Any]
+            let items = ((all?["data"] as? [[String: Any]]) ?? []).filter { $0["id"] as? String != hiddenScene }
             return (200, try JSONSerialization.data(withJSONObject: ["errors": [], "data": items]))
         }
         return (200, try HueFixture.data(rest))

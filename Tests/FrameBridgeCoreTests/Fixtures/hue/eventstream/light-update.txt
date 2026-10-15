@@ -1,0 +1,12 @@
+: hi
+
+id: 1760000000:0
+data: [{"creationtime":"2026-10-12T21:04:11Z","data":[{"id":"6d2b7c11-0000-4000-8000-000000000001","id_v1":"/lights/1","on":{"on":false},"owner":{"rid":"7e3c8d22-0000-4000-8000-000000000001","rtype":"device"},"type":"light"}],"id":"aaaa0000-0000-4000-8000-000000000001","type":"update"}]
+
+id: 1760000001:0
+data: [{"creationtime":"2026-10-12T21:04:12Z","data":[{"dimming":{"brightness":42.7},"id":"6d2b7c11-0000-4000-8000-000000000003","type":"light"}],"id":"aaaa0000-0000-4000-8000-000000000002","type":"update"}]
+
+id: 1760000002:0
+data: [{"creationtime":"2026-10-12T21:04:13Z",
+data: "data":[{"id":"2b8e3c01-0000-4000-8000-000000000001","on":{"on":false},"type":"grouped_light"}],"id":"aaaa0000-0000-4000-8000-000000000003","type":"update"}]
+

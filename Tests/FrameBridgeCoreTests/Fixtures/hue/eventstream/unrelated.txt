@@ -1,0 +1,14 @@
+: hi
+
+id: 1760000030:0
+data: [{"creationtime":"2026-10-12T21:07:00Z","data":[{"id":"9c4f6a30-0000-4000-8000-000000000001","motion":{"motion":true},"type":"motion"}],"id":"aaaa0000-0000-4000-8000-000000000031","type":"update"}]
+
+id: 1760000031:0
+data: [{"creationtime":"2026-10-12T21:07:01Z","data":[{"id":"9c4f6a30-0000-4000-8000-000000000002","owner":{"rid":"7e3c8d22-0000-4000-8000-000000000001","rtype":"device"},"status":"connectivity_issue","type":"zigbee_connectivity"},{"id":"9c4f6a30-0000-4000-8000-000000000003","power_state":{"battery_level":80},"type":"device_power"}],"id":"aaaa0000-0000-4000-8000-000000000032","type":"update"}]
+
+id: 1760000032:0
+data: [{"foo":1},"text",{"creationtime":"2026-10-12T21:07:02Z","data":[{"nope":true}],"id":"aaaa0000-0000-4000-8000-000000000033","type":"update"}]
+
+id: 1760000033:0
+data: not json
+
