@@ -23,6 +23,7 @@ actor StubSonosTransport: SonosTransport {
     private var transportState: String
     private var position: String
     private var unreachable = false
+    private var artStatus = 200
 
     init(topology: String = "topology-alone", transport: String = "transport-playing", position: String = "position-music") {
         self.topology = topology
@@ -30,11 +31,12 @@ actor StubSonosTransport: SonosTransport {
         self.position = position
     }
 
-    func set(topology: String? = nil, transport: String? = nil, position: String? = nil, unreachable: Bool? = nil) {
+    func set(topology: String? = nil, transport: String? = nil, position: String? = nil, unreachable: Bool? = nil, artStatus: Int? = nil) {
         if let topology { self.topology = topology }
         if let transport { self.transportState = transport }
         if let position { self.position = position }
         if let unreachable { self.unreachable = unreachable }
+        if let artStatus { self.artStatus = artStatus }
     }
 
     func soap(host: String, path: String, action: String, body: Data) async throws -> Data {
@@ -51,6 +53,6 @@ actor StubSonosTransport: SonosTransport {
     func get(host: String, path: String) async throws -> (status: Int, data: Data) {
         gets.append(path)
         if unreachable { throw SonosError.unreachable }
-        return (200, try SonosFixture.data("art", ext: "jpg"))
+        return (artStatus, artStatus == 200 ? try SonosFixture.data("art", ext: "jpg") : Data())
     }
 }

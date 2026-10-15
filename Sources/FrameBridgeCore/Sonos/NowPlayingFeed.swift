@@ -14,7 +14,9 @@ public actor NowPlayingFeed {
     private let timeZone: TimeZone
     private let logger: Logger
     private var value: NowPlaying?
-    private var artPath: String?
+    private var art: (path: String, full: Data, half: Data)?
+    // The /getaa path last tried, so a failed fetch isn't retried every poll for the same track.
+    private var artAttempted: String?
     private var coordinator: String?
     private var lastSuccess: Date?
     private var lastError: String?
@@ -43,17 +45,29 @@ public actor NowPlayingFeed {
             lastError = nil
             if transport == "TRANSITIONING", value != nil { return interval }
             let state = SonosMapping.state(transport, previous: value?.state)
-            let mapped = SonosMapping.nowPlaying(room: config.room, state: state, trackURI: position.trackURI, didl: position.didl)
+            var mapped = SonosMapping.nowPlaying(room: config.room, state: state, trackURI: position.trackURI, didl: position.didl)
+            // Fetch the art before the event goes out, so `art: true` never precedes the image.
+            if let path = mapped.artPath {
+                if path != artAttempted {
+                    artAttempted = path
+                    art = nil
+                    art = await fetchArt(host: host, path: path)
+                }
+            } else {
+                art = nil
+                artAttempted = nil
+            }
+            if mapped.value.art == true, art == nil { mapped.value.art = false }
             let changed = mapped.value != value
             value = mapped.value
-            artPath = mapped.artPath
             if changed { await events?.nowPlayingChanged(mapped.value) }
         } catch {
             let detail = Self.describe(error)
             if detail != lastError { logger.warning("sonos poll failed", metadata: ["reason": .string(detail)]) }
             lastError = detail
             value = nil
-            artPath = nil
+            art = nil
+            artAttempted = nil
             coordinator = nil
         }
         return interval
@@ -75,24 +89,24 @@ public actor NowPlayingFeed {
         return value
     }
 
-    /// The current track's art, resized. Only the speaker's own `/getaa` art.
-    func artJPEG(size: ImageSize) async throws -> Data {
-        guard value != nil, let coordinator else { throw APIError.sourceUnavailable(lastError ?? "no reading yet") }
-        guard let artPath else { throw APIError.notFound }
-        let fetched: (status: Int, data: Data)
-        do {
-            fetched = try await client.art(host: coordinator, path: artPath)
-        } catch SonosError.badResponse {
-            throw APIError.notFound
-        } catch {
-            throw APIError.sourceUnavailable("speaker not reachable")
+    /// Once per track change. A failure is not an outage: the track just has no art.
+    private func fetchArt(host: String, path: String) async -> (path: String, full: Data, half: Data)? {
+        if let fetched = try? await client.art(host: host, path: path), (200..<300).contains(fetched.status),
+           let source = CGImageSourceCreateWithData(fetched.data as CFData, nil),
+           let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+           let full = try? ImageSizing.jpeg(from: image, maxEdge: ImageSize.full.maxEdge),
+           let half = try? ImageSizing.jpeg(from: image, maxEdge: ImageSize.half.maxEdge) {
+            return (path, full, half)
         }
-        guard (200..<300).contains(fetched.status),
-              let source = CGImageSourceCreateWithData(fetched.data as CFData, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
-              let jpeg = try? ImageSizing.jpeg(from: image, maxEdge: size.maxEdge)
-        else { throw APIError.notFound }
-        return jpeg
+        logger.debug("sonos art unavailable")
+        return nil
+    }
+
+    /// The current track's art, from memory. Never contacts the speaker.
+    func artJPEG(size: ImageSize) throws -> Data {
+        guard let value, coordinator != nil else { throw APIError.sourceUnavailable(lastError ?? "no reading yet") }
+        guard value.art == true, let art else { throw APIError.notFound }
+        return size == .half ? art.half : art.full
     }
 
     func health() -> FeedHealth {
