@@ -15,6 +15,10 @@ private struct StubProvider: ShoppingProvider {
         if let error { throw error }
         return values
     }
+    func setCompleted(id: String, listTitle: String, done: Bool) async throws -> (values: ReminderValues, changed: Bool)? {
+        if let error { throw error }
+        return nil
+    }
 }
 
 private actor MutableProvider: ShoppingProvider {
@@ -22,6 +26,35 @@ private actor MutableProvider: ShoppingProvider {
     func set(_ v: [ReminderValues]) { values = v }
     func authorization() async -> FeedHealth.Authorization { .fullAccess }
     func reminders(listTitle: String, completedSince: Date, until: Date) async throws -> [ReminderValues] { values }
+    func setCompleted(id: String, listTitle: String, done: Bool) async throws -> (values: ReminderValues, changed: Bool)? { nil }
+}
+
+/// In-memory list that counts saves, like the EventKit one: no save when already matching.
+private actor WritableProvider: ShoppingProvider {
+    var auth: FeedHealth.Authorization = .fullAccess
+    var values: [ReminderValues]
+    var error: (any Error)?
+    private(set) var saves = 0
+    private(set) var lastId: String?
+    init(_ values: [ReminderValues], auth: FeedHealth.Authorization = .fullAccess, error: (any Error)? = nil) {
+        self.values = values
+        self.auth = auth
+        self.error = error
+    }
+    func authorization() async -> FeedHealth.Authorization { auth }
+    func reminders(listTitle: String, completedSince: Date, until: Date) async throws -> [ReminderValues] { values }
+    func setCompleted(id: String, listTitle: String, done: Bool) async throws -> (values: ReminderValues, changed: Bool)? {
+        lastId = id
+        if let error { throw error }
+        guard let i = values.firstIndex(where: { $0.id == id }) else { return nil }
+        let changed = values[i].isCompleted != done
+        if changed {
+            values[i].isCompleted = done
+            values[i].completionDate = done ? Date() : nil
+            saves += 1
+        }
+        return (values[i], changed)
+    }
 }
 
 private let config = ShoppingConfig(list: "Shopping", stores: [Store(id: "grocer", name: "<store>")], defaultStore: "grocer", categories: ["Produce": ["avocados"]])
@@ -103,4 +136,92 @@ private func app(_ p: StubProvider) -> some ApplicationProtocol {
     _ = try await f.list()
     #expect(await f.rebuild() == true)
     #expect(await f.rebuild() == false)
+}
+
+private func patch(_ app: some ApplicationProtocol, _ id: String, _ body: String, headers: HTTPFields = TestAuth.headers) async throws -> (HTTPResponse.Status, String) {
+    try await app.test(.router) { client in
+        try await client.execute(uri: "/api/shopping/\(id)", method: .patch, headers: headers, body: ByteBuffer(string: body)) { ($0.status, String(buffer: $0.body)) }
+    }
+}
+
+@Test func patchChecksOffAndBackOn() async throws {
+    let p = WritableProvider([rem("a", "3 avocados"), rem("b", "Soap")])
+    let a = Application(router: buildRouter(config: TestAuth.config, shopping: feed(p)))
+    let (status, body) = try await patch(a, "a", #"{"done":true}"#)
+    #expect(status == .ok && !body.contains("null"))
+    let item = try JSONDecoder().decode(ShoppingItem.self, from: Data(body.utf8))
+    #expect(item.done && item.qty == 3 && item.name == "avocados" && item.cat == .produce && item.store == "grocer")
+    let (_, listBody) = try await get(a, "/api/shopping")
+    let list = try JSONDecoder().decode(ShoppingList.self, from: Data(listBody.utf8))
+    #expect(list.items.map(\.id) == ["b", "a"] && list.items[1].done)
+    let (undoStatus, undoBody) = try await patch(a, "a", #"{"done":false}"#)
+    #expect(undoStatus == .ok && undoBody.contains(#""done":false"#))
+    #expect(await p.saves == 2)
+}
+
+@Test func patchDecodesPercentEncodedId() async throws {
+    let id = "x-apple-reminder://0001"
+    let p = WritableProvider([rem(id, "Milk")])
+    let a = Application(router: buildRouter(config: TestAuth.config, shopping: feed(p)))
+    let (status, _) = try await patch(a, "x-apple-reminder%3A%2F%2F0001", #"{"done":true}"#)
+    #expect(status == .ok)
+    #expect(await p.lastId == id)
+}
+
+@Test func patchUnknownIdIs404() async throws {
+    let p = WritableProvider([rem("a", "Milk")])
+    let (status, body) = try await patch(Application(router: buildRouter(config: TestAuth.config, shopping: feed(p))), "nope", #"{"done":true}"#)
+    #expect(status == .notFound && body.contains("not_found"))
+    #expect(await p.saves == 0)
+}
+
+@Test func patchIs503WhenSourceIsDown() async throws {
+    let cases: [(WritableProvider, String)] = [
+        (WritableProvider([rem("a", "Milk")], auth: .denied), "reminders access not granted"),
+        (WritableProvider([rem("a", "Milk")], auth: .notDetermined), "reminders access not granted"),
+        (WritableProvider([rem("a", "Milk")], auth: .writeOnly), "reminders access not granted"),
+        (WritableProvider([rem("a", "Milk")], error: ShoppingSourceError.listNotFound), "list not found"),
+        (WritableProvider([rem("a", "Milk")], error: CocoaError(.fileWriteUnknown)), "reminders write failed"),
+    ]
+    for (p, detail) in cases {
+        let (status, body) = try await patch(Application(router: buildRouter(config: TestAuth.config, shopping: feed(p))), "a", #"{"done":true}"#)
+        #expect(status == .serviceUnavailable)
+        #expect(body.contains("source_unavailable") && body.contains(detail))
+        #expect(await p.saves == 0)
+    }
+    let (status, body) = try await patch(Application(router: buildRouter(config: TestAuth.config)), "a", #"{"done":true}"#)
+    #expect(status == .serviceUnavailable && body.contains("not configured"))
+}
+
+@Test func patchRequiresTokenAndValidBody() async throws {
+    let p = WritableProvider([rem("a", "Milk")])
+    let a = Application(router: buildRouter(config: TestAuth.config, shopping: feed(p)))
+    let (unauth, _) = try await patch(a, "a", #"{"done":true}"#, headers: [:])
+    #expect(unauth == .unauthorized)
+    let (bad, body) = try await patch(a, "a", #"{"done":1}"#)
+    #expect(bad == .badRequest && body.contains("bad_request"))
+    #expect(await p.saves == 0)
+}
+
+@Test func patchSendsOneShoppingEventAndNoneForNoOp() async throws {
+    let p = WritableProvider([rem("a", "Milk")])
+    let f = feed(p)
+    _ = await f.rebuild()
+    let hub = EventHub()
+    let sub = await hub.subscribe()
+    let a = Application(router: buildRouter(config: TestAuth.config, shopping: f, events: hub))
+    let (status, _) = try await patch(a, "a", #"{"done":true}"#)
+    #expect(status == .ok)
+    var it = sub.stream.makeAsyncIterator()
+    #expect(await it.next()?.contains("shopping") == true)
+    // The EKEventStoreChanged rebuild after our own write must not notify again.
+    #expect(await f.rebuild() == false)
+
+    let (again, _) = try await patch(a, "a", #"{"done":true}"#)
+    #expect(again == .ok)
+    #expect(await p.saves == 1)
+    await hub.remove(sub.id)
+    var rest: [String] = []
+    while let m = await it.next() { rest.append(m) }
+    #expect(rest.isEmpty)
 }

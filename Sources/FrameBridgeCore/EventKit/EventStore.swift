@@ -3,8 +3,9 @@ import Foundation
 import Logging
 import ServiceLifecycle
 
-/// The one `EKEventStore` for calendar and shopping. Read only: nothing here or in the
-/// adapters calls save, remove or commit.
+/// The one `EKEventStore` for calendar and shopping. Calendar is read only. The one write is
+/// `EventKitShoppingSource.setCompleted` (isCompleted plus save(_:commit: true)). Nothing calls
+/// remove or a bare commit().
 // @unchecked: EKEventStore is documented as usable from any thread for reads, and `denied` is only
 // written once, before the observer starts.
 final class SharedEventStore: @unchecked Sendable {

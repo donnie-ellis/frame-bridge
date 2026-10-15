@@ -8,6 +8,9 @@ protocol ShoppingProvider: Sendable {
     func unavailableReason() async -> String?
     /// Incomplete reminders, plus those completed in [completedSince, until], in the list with this title.
     func reminders(listTitle: String, completedSince: Date, until: Date) async throws -> [ReminderValues]
+    /// Check off or un-check one reminder in the list with this title. Nil when the id isn't a
+    /// reminder in that list. `changed` is false when it already matched, and nothing is saved.
+    func setCompleted(id: String, listTitle: String, done: Bool) async throws -> (values: ReminderValues, changed: Bool)?
 }
 
 extension ShoppingProvider {
@@ -62,6 +65,27 @@ public actor ShoppingFeed {
             logger.warning("reminders read failed")
             throw .sourceUnavailable("reminders read failed")
         }
+    }
+
+    /// The one write: sets `done` on a reminder in the Shopping list and returns the item as stored.
+    func setDone(id: String, done: Bool) async throws(APIError) -> (item: ShoppingItem, changed: Bool) {
+        guard await provider.authorization() == .fullAccess else {
+            throw .sourceUnavailable("reminders access not granted")
+        }
+        let result: (values: ReminderValues, changed: Bool)?
+        do {
+            result = try await provider.setCompleted(id: id, listTitle: config.list, done: done)
+        } catch ShoppingSourceError.listNotFound {
+            logger.warning("shopping list not found")
+            throw .sourceUnavailable("list not found")
+        } catch {
+            logger.warning("reminders write failed")
+            throw .sourceUnavailable("reminders write failed")
+        }
+        guard let result else { throw .notFound }
+        // Baseline now holds the write, so the EKEventStoreChanged rebuild that follows sends nothing.
+        if result.changed { _ = await rebuild() }
+        return (ItemMapping.item(result.values, config: config), result.changed)
     }
 
     /// Re-reads and reports whether the list differs from the last rebuild. The first call sets the

@@ -5,7 +5,7 @@ import Logging
 import ServiceLifecycle
 
 /// The `info.version` of `frame-bridge.openapi.yaml` this build implements.
-public let contractVersion = "0.4.0"
+public let contractVersion = "0.6.0"
 
 public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: CalendarFeed? = nil, shopping: ShoppingFeed? = nil, photos: PhotosFeed? = nil, images: ImageCache? = nil, lights: LightsFeed? = nil, events: EventHub = EventHub()) -> Router<FrameRequestContext> {
     let router = Router(context: FrameRequestContext.self)
@@ -31,6 +31,16 @@ public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: 
     router.get("api/shopping") { _, _ -> ShoppingList in
         guard let shopping else { throw APIError.sourceUnavailable("not configured") }
         return try await shopping.list()
+    }
+    router.patch("api/shopping/:id") { request, context -> ShoppingItem in
+        guard let shopping else { throw APIError.sourceUnavailable("not configured") }
+        guard let id = context.parameters.get("id")?.removingPercentEncoding else { throw APIError.notFound }
+        let body: ByteBuffer
+        do { body = try await request.body.collect(upTo: 4096) } catch { throw APIError.badRequest("body too large") }
+        let patch = try ShoppingItemPatch.parse(Data(buffer: body))
+        let result = try await shopping.setDone(id: id, done: patch.done)
+        if result.changed { await events.shoppingChanged() }
+        return result.item
     }
     router.get("api/photos") { _, _ -> Response in
         guard let photos else { throw APIError.sourceUnavailable("not configured") }

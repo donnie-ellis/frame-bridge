@@ -18,7 +18,7 @@ public struct Store: Codable, Equatable, Sendable {
 }
 
 /// `ShoppingItem` in the contract.
-public struct ShoppingItem: Codable, Equatable, Sendable {
+public struct ShoppingItem: ResponseEncodable, Codable, Equatable, Sendable {
     public enum Category: String, Codable, CaseIterable, Sendable {
         case produce = "Produce"
         case bakery = "Bakery"
