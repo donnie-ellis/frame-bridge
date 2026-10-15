@@ -158,3 +158,20 @@ private func hueJSON(_ hue: String) -> Data {
         #expect(throws: ConfigError.self) { try Config.decode(hueJSON(hue)) }
     }
 }
+
+private func sonosJSON(_ sonos: String) -> Data {
+    Data("{\"frames\":{\"kitchen\":\"\(good)\"},\"dashboardDir\":\"/tmp/dist\",\"sonos\":\(sonos)}".utf8)
+}
+
+@Test func configSonosIsOptional() throws {
+    #expect(try Config.decode(json("{\"kitchen\":\"\(good)\"}")).sonos == nil)
+    #expect(try Config.decode(sonosJSON(#"{"host":"192.0.2.10","room":"Room A"}"#)).sonos == SonosConfig(host: "192.0.2.10", room: "Room A"))
+}
+
+@Test func configRejectsBadSonos() {
+    let bad = [#"{"host":"192.0.2.10","room":""}"#, #"{"host":"","room":"Room A"}"#, #"{"host":"http://192.0.2.10","room":"Room A"}"#,
+               #"{"host":"192.0.2.10/x","room":"Room A"}"#, #"{"host":"192.0.2.10:1400","room":"Room A"}"#, #"{"host":"a b","room":"Room A"}"#]
+    for sonos in bad {
+        #expect(throws: ConfigError.self) { try Config.decode(sonosJSON(sonos)) }
+    }
+}

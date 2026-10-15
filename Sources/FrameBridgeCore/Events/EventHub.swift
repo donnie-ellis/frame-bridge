@@ -62,6 +62,7 @@ public actor EventHub {
     func roomChanged(_ room: Room) { send(.room(room)) }
     func sceneChanged(_ scene: Scene) { send(.scene(scene)) }
     func lightsChanged() { send(.lights(.now(timeZone: timeZone))) }
+    func nowPlayingChanged(_ value: NowPlaying) { send(.nowplaying(value)) }
 
     func ping() { broadcast(SSE.ping) }
 

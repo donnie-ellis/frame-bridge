@@ -23,7 +23,10 @@ public struct Config: Decodable, Sendable {
     /// The Hue Bridge address and scene icons. Absent: the lights feed reports "not configured".
     public let hue: HueConfig?
 
-    public init(frames: [String: String], dashboardDir: String, weather: WeatherConfig? = nil, calendar: CalendarConfig? = nil, shopping: ShoppingConfig? = nil, photos: PhotosConfig? = nil, hue: HueConfig? = nil) {
+    /// The Sonos speaker and room. Absent: the now playing routes answer 503 and `/healthz` omits `sonos`.
+    public let sonos: SonosConfig?
+
+    public init(frames: [String: String], dashboardDir: String, weather: WeatherConfig? = nil, calendar: CalendarConfig? = nil, shopping: ShoppingConfig? = nil, photos: PhotosConfig? = nil, hue: HueConfig? = nil, sonos: SonosConfig? = nil) {
         self.frames = frames
         self.dashboardDir = dashboardDir
         self.weather = weather
@@ -31,6 +34,7 @@ public struct Config: Decodable, Sendable {
         self.shopping = shopping
         self.photos = photos
         self.hue = hue
+        self.sonos = sonos
     }
 
     public static func decode(_ data: Data) throws -> Config {
@@ -54,6 +58,7 @@ public struct Config: Decodable, Sendable {
         if let s = config.shopping { try s.validate() }
         if let p = config.photos { try p.validate() }
         if let h = config.hue { try h.validate() }
+        if let s = config.sonos { try s.validate() }
         return config
     }
 
@@ -220,6 +225,26 @@ public struct HueConfig: Decodable, Sendable, Equatable {
     }
 }
 
+/// The speaker address and room name are private: never log them.
+public struct SonosConfig: Decodable, Sendable, Equatable {
+    /// Host or IP of any speaker in the room's group: no scheme, path or port.
+    public let host: String
+    /// The room name as the Sonos app shows it.
+    public let room: String
+
+    public init(host: String, room: String) {
+        self.host = host
+        self.room = room
+    }
+
+    func validate() throws {
+        if host.isEmpty || host.contains(where: { $0 == "/" || $0 == ":" || $0.isWhitespace }) {
+            throw ConfigError.badSonos("\"sonos.host\" must be a host name or IP, with no scheme, path, port or spaces")
+        }
+        if room.isEmpty { throw ConfigError.badSonos("\"sonos.room\" is empty") }
+    }
+}
+
 /// `"all"` or a list of person ids.
 public enum CalendarPeople: Decodable, Sendable, Equatable {
     case all
@@ -252,6 +277,7 @@ public enum ConfigError: Error, CustomStringConvertible, Equatable {
     case badShopping(String)
     case badPhotos(String)
     case badHue(String)
+    case badSonos(String)
 
     public var description: String {
         switch self {
@@ -264,6 +290,7 @@ public enum ConfigError: Error, CustomStringConvertible, Equatable {
         case .badShopping(let detail): "shopping config: \(detail)"
         case .badPhotos(let detail): "photos config: \(detail)"
         case .badHue(let detail): "hue config: \(detail)"
+        case .badSonos(let detail): "sonos config: \(detail)"
         case .badHash(let frame): "frame \"\(frame)\" needs a 64-character lowercase hex SHA-256 hash"
         }
     }

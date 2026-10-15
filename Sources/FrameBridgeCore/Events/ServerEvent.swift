@@ -10,6 +10,7 @@ enum ServerEvent: Sendable {
     case room(Room)
     case scene(Scene)
     case lights(ChangeNotice)
+    case nowplaying(NowPlaying)
 
     var name: String {
         switch self {
@@ -21,6 +22,7 @@ enum ServerEvent: Sendable {
         case .room: "room"
         case .scene: "scene"
         case .lights: "lights"
+        case .nowplaying: "nowplaying"
         }
     }
 
@@ -34,6 +36,7 @@ enum ServerEvent: Sendable {
         case .light(let l): data = try encoder.encode(l)
         case .room(let r): data = try encoder.encode(r)
         case .scene(let s): data = try encoder.encode(s)
+        case .nowplaying(let n): data = try encoder.encode(n)
         }
         return "event: \(name)\ndata: \(String(decoding: data, as: UTF8.self))\n\n"
     }

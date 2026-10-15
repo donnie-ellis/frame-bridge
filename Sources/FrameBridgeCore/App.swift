@@ -7,7 +7,7 @@ import ServiceLifecycle
 /// The `info.version` of `frame-bridge.openapi.yaml` this build implements.
 public let contractVersion = "0.7.0"
 
-public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: CalendarFeed? = nil, shopping: ShoppingFeed? = nil, photos: PhotosFeed? = nil, images: ImageCache? = nil, lights: LightsFeed? = nil, events: EventHub = EventHub()) -> Router<FrameRequestContext> {
+public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: CalendarFeed? = nil, shopping: ShoppingFeed? = nil, photos: PhotosFeed? = nil, images: ImageCache? = nil, lights: LightsFeed? = nil, nowPlaying: NowPlayingFeed? = nil, events: EventHub = EventHub()) -> Router<FrameRequestContext> {
     let router = Router(context: FrameRequestContext.self)
     // Before every route, so none can skip the token check.
     router.add(middleware: FrameTokenMiddleware(store: TokenStore(config: config)))
@@ -85,6 +85,19 @@ public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: 
         guard let id = context.parameters.get("id")?.removingPercentEncoding else { throw APIError.notFound }
         return try await lights.recallScene(id: id)
     }
+    router.get("api/nowplaying") { _, _ -> NowPlaying in
+        guard let nowPlaying else { throw APIError.sourceUnavailable("not configured") }
+        return try await nowPlaying.current()
+    }
+    router.get("api/nowplaying/art") { request, _ -> Response in
+        guard let nowPlaying else { throw APIError.sourceUnavailable("not configured") }
+        let size = ImageSize(query: request.uri.queryParameters["size"].map(String.init))
+        let data = try await nowPlaying.artJPEG(size: size)
+        var headers = HTTPFields()
+        headers[.contentType] = "image/jpeg"
+        headers[.cacheControl] = "no-cache"
+        return Response(status: .ok, headers: headers, body: .init(byteBuffer: ByteBuffer(data: data)))
+    }
     router.get("healthz") { _, _ in
         let calendarHealth: FeedHealth
         if let calendar {
@@ -121,7 +134,8 @@ public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: 
             shopping: shoppingHealth,
             lights: lightsHealth,
             weather: weatherHealth,
-            photos: photosHealth
+            photos: photosHealth,
+            sonos: await nowPlaying?.health()
         ))
     }
     return router
@@ -198,8 +212,17 @@ public func buildApplication(config: Config) -> some ApplicationProtocol {
     } else {
         logger.info("lights not configured")
     }
+    var nowPlaying: NowPlayingFeed?
+    var nowPlayingService: NowPlayingService?
+    if let sonosConfig = config.sonos {
+        let feed = NowPlayingFeed(config: sonosConfig, events: events, logger: logger)
+        nowPlaying = feed
+        nowPlayingService = NowPlayingService(feed: feed)
+    } else {
+        logger.info("sonos not configured")
+    }
     var app = Application(
-        router: buildRouter(config: config, weather: weather, calendar: calendar, shopping: shopping, photos: photos, images: images, lights: lights, events: events),
+        router: buildRouter(config: config, weather: weather, calendar: calendar, shopping: shopping, photos: photos, images: images, lights: lights, nowPlaying: nowPlaying, events: events),
         configuration: .init(address: .hostname("0.0.0.0", port: 8787), serverName: "frame-bridge")
     )
     app.addServices(EventPingService(hub: events))
@@ -207,5 +230,6 @@ public func buildApplication(config: Config) -> some ApplicationProtocol {
     if let eventStoreService { app.addServices(eventStoreService) }
     if let photosService { app.addServices(photosService) }
     if let lightsService { app.addServices(lightsService) }
+    if let nowPlayingService { app.addServices(nowPlayingService) }
     return app
 }

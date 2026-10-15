@@ -10,6 +10,8 @@ public struct Health: ResponseEncodable, Decodable, Equatable, Sendable {
         public var lights: FeedHealth
         public var weather: FeedHealth
         public var photos: FeedHealth
+        /// Omitted when Sonos isn't configured, as the contract says.
+        public var sonos: FeedHealth?
     }
 
     public var status: Status
@@ -17,7 +19,7 @@ public struct Health: ResponseEncodable, Decodable, Equatable, Sendable {
     public var feeds: Feeds
 
     public init(feeds: Feeds) {
-        let all = [feeds.calendar, feeds.shopping, feeds.lights, feeds.weather, feeds.photos]
+        let all = [feeds.calendar, feeds.shopping, feeds.lights, feeds.weather, feeds.photos] + (feeds.sonos.map { [$0] } ?? [])
         self.status = all.contains { $0.status == .error } ? .degraded : .ok
         self.version = contractVersion
         self.feeds = feeds
