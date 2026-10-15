@@ -7,12 +7,18 @@ import Foundation
 /// | Light.id, name        | light `id`, `metadata.name`                                             |
 /// | Light.on              | light `on.on`                                                           |
 /// | Light.level           | light `dimming.brightness` rounded, at least 1; 100 without dimming    |
+/// | Light.temp            | `color_temperature.mirek` as Kelvin; only when `mirek_valid` and not null |
+/// | Light.tempRange       | `color_temperature.mirek_schema`, as Kelvin; whenever the light has it  |
+/// | Light.color           | `color.xy` + brightness (gamut-clamped) as `#rrggbb`; any colour light  |
 /// | Light.room            | the kept room whose `children` has the light's owner device             |
 /// | Room.id, name, kind   | room or zone `id`, `metadata.name`; `room` or `zone`                    |
 /// | Room.on, level        | the `grouped_light` in its `services`; same level rule                  |
 /// | Room.lights           | room: children devices -> their light services; zone: children lights   |
 /// | Scene.room            | scene `group.rid`                                                       |
 /// | Scene.active          | `status.active` isn't `inactive` (no status: false)                     |
+/// | setLight temp         | `color_temperature.mirek`, clamped to the schema; 400 without it        |
+/// | setLight color        | `color.xy` from the hex; 400 without `color` or for `#000000`           |
+/// | setLight on           | `on` as sent; true when level, temp or color is sent                    |
 /// | setRoom              | one `grouped_light` PUT, then a re-read of it for the response          |
 /// | recallScene          | one `scene` PUT; the response is the snapshot's Scene with active true  |
 /// | Scene.icon            | the config's scene name -> icon map; omitted when not mapped            |
@@ -26,7 +32,13 @@ enum LightsMapping {
     }
 
     static func light(_ l: HueLight, room: String) -> Light {
-        Light(id: l.id, room: room, name: l.metadata.name, on: l.on.on, level: level(l.dimming?.brightness))
+        let ct = l.colorTemperature
+        return Light(
+            id: l.id, room: room, name: l.metadata.name, on: l.on.on, level: level(l.dimming?.brightness),
+            temp: ct.flatMap { $0.mirekValid ? $0.mirek.map(LightColor.kelvin(mirek:)) : nil },
+            tempRange: ct.map { LightColor.tempRange($0.mirekSchema) },
+            color: l.color.map { LightColor.hex(xy: $0.xy, brightness: l.dimming?.brightness, gamut: $0.gamut) }
+        )
     }
 
     static func state(_ r: HueResources, sceneIcons: [String: String]) -> LightsState {
@@ -96,8 +108,30 @@ enum LightsMapping {
 
     static let recallBody = Data(#"{"recall":{"action":"active"}}"#.utf8)
 
-    /// The Hue PUT body. A level on a light that's off turns it on.
-    static func hueBody(for patch: LightPatch, dimmable: Bool) -> Data {
+    /// The Hue PUT body. A level, temp or color on a light that's off turns it on.
+    static func hueBody(for patch: LightPatch, light: HueLight) throws(APIError) -> Data {
+        var body: [String: Any] = [:]
+        if let on = patch.on {
+            body["on"] = ["on": on]
+        } else if patch.level != nil || patch.temp != nil || patch.color != nil {
+            body["on"] = ["on": true]
+        }
+        if let level = patch.level, light.dimming != nil {
+            body["dimming"] = ["brightness": level]
+        }
+        if let temp = patch.temp {
+            guard let ct = light.colorTemperature else { throw .badRequest("light has no white temperature") }
+            body["color_temperature"] = ["mirek": LightColor.mirek(forKelvin: temp, schema: ct.mirekSchema)]
+        }
+        if let color = patch.color {
+            guard light.color != nil else { throw .badRequest("light has no colour") }
+            guard let xy = LightColor.xy(hex: color) else { throw .badRequest("color has no hue") }
+            body["color"] = ["xy": ["x": xy.x, "y": xy.y]]
+        }
+        return (try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])) ?? Data("{}".utf8)
+    }
+
+    static func hueBody(for patch: RoomPatch, dimmable: Bool) -> Data {
         var body: [String: Any] = [:]
         if let on = patch.on {
             body["on"] = ["on": on]

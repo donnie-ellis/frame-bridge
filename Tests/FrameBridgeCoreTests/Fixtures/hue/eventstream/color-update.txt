@@ -1,0 +1,6 @@
+id: 1760000010:0
+data: [{"creationtime":"2026-10-12T21:05:00Z","data":[{"color":{"xy":{"x":0.17,"y":0.7}},"color_temperature":{"mirek":null,"mirek_valid":false},"id":"6d2b7c11-0000-4000-8000-000000000001","type":"light"}],"id":"aaaa0000-0000-4000-8000-000000000010","type":"update"}]
+
+id: 1760000011:0
+data: [{"creationtime":"2026-10-12T21:05:01Z","data":[{"color_temperature":{"mirek":250,"mirek_valid":true},"id":"6d2b7c11-0000-4000-8000-000000000001","type":"light"}],"id":"aaaa0000-0000-4000-8000-000000000011","type":"update"}]
+

@@ -119,6 +119,20 @@ actor FakeHueTransport: HueTransport {
     private func apply(_ patch: [String: Any]?, to item: inout [String: Any]) {
         guard let patch else { return }
         if let on = patch["on"] { item["on"] = on }
+        if let mirek = (patch["color_temperature"] as? [String: Any])?["mirek"], var ct = item["color_temperature"] as? [String: Any] {
+            ct["mirek"] = mirek
+            ct["mirek_valid"] = true
+            item["color_temperature"] = ct
+        }
+        if let xy = (patch["color"] as? [String: Any])?["xy"], var color = item["color"] as? [String: Any] {
+            color["xy"] = xy
+            item["color"] = color
+            if var ct = item["color_temperature"] as? [String: Any] {
+                ct["mirek"] = NSNull()
+                ct["mirek_valid"] = false
+                item["color_temperature"] = ct
+            }
+        }
         if let dimming = patch["dimming"] as? [String: Any], var current = item["dimming"] as? [String: Any] {
             current.merge(dimming) { _, new in new }
             item["dimming"] = current

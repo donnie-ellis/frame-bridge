@@ -168,3 +168,30 @@ private func merged(_ fixture: String, into start: HueResources? = nil) throws -
     let names = HueEventMerge.events(from: state(base), to: state(moved)).map(\.name)
     #expect(names.contains("light") && names.contains("room"))
 }
+
+// MARK: colour and white temperature
+
+@Test func switchingToColourModeAndBackFollowsTheStream() throws {
+    let start = try HueFixture.resources()
+    let before = try #require(state(start).devices.first { $0.id == HueFixture.light(1) })
+    #expect(before.temp == 2703)
+    let all = messages(try HueFixture.text("color-update"))
+    #expect(all.count == 2)
+
+    var r = start
+    #expect(!HueEventMerge.apply(HueEventDecoder.batches(in: all[0]), to: &r))
+    let colour = try #require(state(r).devices.first { $0.id == HueFixture.light(1) })
+    #expect(colour.temp == nil && colour.color != before.color && colour.tempRange == before.tempRange)
+    #expect(HueEventMerge.events(from: state(start), to: state(r)).map(\.name) == ["light"])
+    #expect(r.lights[0].color?.gamut != nil && r.lights[0].colorTemperature?.mirek == nil)
+
+    #expect(!HueEventMerge.apply(HueEventDecoder.batches(in: all[1]), to: &r))
+    let white = try #require(state(r).devices.first { $0.id == HueFixture.light(1) })
+    #expect(white.temp == 4000 && white.color == colour.color)
+}
+
+@Test func colourFieldsOnALightWithoutThemAreIgnored() {
+    let batch = HueEventDecoder.batches(in: #"[{"type":"update","data":[{"id":"x","type":"light","color_temperature":{"mirek":null,"mirek_valid":false}}]}]"#)
+    #expect(batch.first?.resources.first?.mirek == nil)
+    #expect(batch.first?.resources.first?.mirekValid == false)
+}

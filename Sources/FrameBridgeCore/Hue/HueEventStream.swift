@@ -40,6 +40,9 @@ struct HueEventResource: Equatable, Sendable {
     var type: String
     var on: Bool?
     var brightness: Double?
+    var mirek: Int?
+    var mirekValid: Bool?
+    var xy: HueLight.XY?
     var name: String?
     var active: String?
     var owner: HueRef?
@@ -69,10 +72,18 @@ enum HueEventDecoder {
 
     private static func resource(_ item: [String: Any]?) -> HueEventResource? {
         guard let item, let id = item["id"] as? String, let type = item["type"] as? String else { return nil }
+        let colorTemperature = item["color_temperature"] as? [String: Any]
+        let xyDict = (item["color"] as? [String: Any])?["xy"] as? [String: Any]
+        let xy = (xyDict?["x"] as? NSNumber).flatMap { x in
+            (xyDict?["y"] as? NSNumber).map { HueLight.XY(x: x.doubleValue, y: $0.doubleValue) }
+        }
         return HueEventResource(
             id: id, type: type,
             on: (item["on"] as? [String: Any])?["on"] as? Bool,
             brightness: ((item["dimming"] as? [String: Any])?["brightness"] as? NSNumber)?.doubleValue,
+            mirek: (colorTemperature?["mirek"] as? NSNumber)?.intValue,
+            mirekValid: colorTemperature?["mirek_valid"] as? Bool,
+            xy: xy,
             name: (item["metadata"] as? [String: Any])?["name"] as? String,
             active: (item["status"] as? [String: Any])?["active"] as? String,
             owner: ref(item["owner"]), children: refs(item["children"]), services: refs(item["services"]), group: ref(item["group"])
