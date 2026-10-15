@@ -6,6 +6,8 @@ import Foundation
 /// |-------------------------|------------------------------------------------------|
 /// | light `on.on`           | `HueLight.on`                                        |
 /// | light `dimming`         | `HueLight.dimming` (kept when only `on` changes)     |
+/// | light `color_temperature` `mirek`, `mirek_valid` | `HueLight.colorTemperature` (schema kept) |
+/// | light `color.xy`        | `HueLight.color` (gamut kept)                        |
 /// | grouped_light `on`, `dimming` | `HueGroupedLight.on`, `.dimming`               |
 /// | room, zone, light, scene `metadata.name` | the same resource's `metadata`      |
 /// | scene `status.active`   | `HueScene.status`                                    |
@@ -39,6 +41,11 @@ enum HueEventMerge {
             guard let i = r.lights.firstIndex(where: { $0.id == item.id }) else { return false }
             if let on = item.on { r.lights[i].on = HueLight.On(on: on) }
             if let b = item.brightness { r.lights[i].dimming = HueLight.Dimming(brightness: b) }
+            if r.lights[i].colorTemperature != nil, let valid = item.mirekValid ?? item.mirek.map({ _ in true }) {
+                r.lights[i].colorTemperature?.mirekValid = valid
+                r.lights[i].colorTemperature?.mirek = item.mirek
+            }
+            if r.lights[i].color != nil, let xy = item.xy { r.lights[i].color?.xy = xy }
             if let name = item.name { r.lights[i].metadata = HueMetadata(name: name) }
             return item.owner.map { $0 == r.lights[i].owner } ?? true
         case "grouped_light":

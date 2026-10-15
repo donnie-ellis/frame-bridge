@@ -121,8 +121,9 @@ public actor LightsFeed {
         guard let resources, let known = resources.lights.first(where: { $0.id == id }),
               let room = LightsMapping.state(resources, sceneIcons: [:]).devices.first(where: { $0.id == id })?.room
         else { throw Self.noLight }
+        let body = try LightsMapping.hueBody(for: patch, light: known)
         do {
-            try await client.putLight(id: id, body: LightsMapping.hueBody(for: patch, dimmable: known.dimming != nil))
+            try await client.putLight(id: id, body: body)
             let updated = try await client.light(id: id)
             return LightsMapping.light(updated, room: room)
         } catch {
@@ -136,7 +137,7 @@ public actor LightsFeed {
         return try await fetch()
     }
 
-    func setRoom(id: String, patch: LightPatch) async throws(APIError) -> Room {
+    func setRoom(id: String, patch: RoomPatch) async throws(APIError) -> Room {
         guard let client else { throw .sourceUnavailable(Self.notPaired) }
         let resources = try await resources { LightsMapping.groupedLightID(ofGroup: id, in: $0) != nil }
         guard let groupedID = LightsMapping.groupedLightID(ofGroup: id, in: resources),

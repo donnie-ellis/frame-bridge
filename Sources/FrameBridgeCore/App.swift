@@ -5,7 +5,7 @@ import Logging
 import ServiceLifecycle
 
 /// The `info.version` of `frame-bridge.openapi.yaml` this build implements.
-public let contractVersion = "0.6.0"
+public let contractVersion = "0.7.0"
 
 public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: CalendarFeed? = nil, shopping: ShoppingFeed? = nil, photos: PhotosFeed? = nil, images: ImageCache? = nil, lights: LightsFeed? = nil, events: EventHub = EventHub()) -> Router<FrameRequestContext> {
     let router = Router(context: FrameRequestContext.self)
@@ -77,7 +77,7 @@ public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: 
         guard let id = context.parameters.get("id")?.removingPercentEncoding else { throw APIError.notFound }
         let body: ByteBuffer
         do { body = try await request.body.collect(upTo: 4096) } catch { throw APIError.badRequest("body too large") }
-        let patch = try LightPatch.parse(Data(buffer: body))
+        let patch = try RoomPatch.parse(Data(buffer: body))
         return try await lights.setRoom(id: id, patch: patch)
     }
     router.post("api/scenes/:id/recall") { _, context -> Scene in

@@ -43,7 +43,8 @@ private let oneID = HueFixture.light(1)
     #expect(light.on && light.level == 60 && light.room == HueFixture.roomA)
     let puts = await fake.recorded().filter { $0.method == "PUT" }
     #expect(puts.count == 1)
-    #expect(puts.first?.body == LightsMapping.hueBody(for: LightPatch(on: true, level: 60), dimmable: true))
+    let expected = try LightsMapping.hueBody(for: LightPatch(on: true, level: 60), light: HueFixture.resources().lights[1])
+    #expect(puts.first?.body == expected)
     #expect(!body.contains("null"))
 }
 
@@ -145,7 +146,7 @@ private func puts(_ fake: FakeHueTransport) async -> [FakeHueTransport.Request] 
     let sent = await puts(fake)
     #expect(sent.count == 1)
     #expect(sent.first?.path == "resource/grouped_light/\(HueFixture.grouped(1))")
-    #expect(sent.first?.body == LightsMapping.hueBody(for: LightPatch(on: false), dimmable: true))
+    #expect(sent.first?.body == LightsMapping.hueBody(for: RoomPatch(on: false), dimmable: true))
 }
 
 @Test func setRoomLevelOnAnOffRoomTurnsItOn() async throws {
@@ -156,7 +157,7 @@ private func puts(_ fake: FakeHueTransport) async -> [FakeHueTransport.Request] 
     #expect(room.on && room.level == 60)
     let sent = await puts(fake)
     #expect(sent.count == 1)
-    #expect(sent.first?.body == LightsMapping.hueBody(for: LightPatch(level: 60), dimmable: true))
+    #expect(sent.first?.body == LightsMapping.hueBody(for: RoomPatch(level: 60), dimmable: true))
 }
 
 @Test func setRoomWorksForAZone() async throws {
@@ -260,4 +261,53 @@ private let roomCalls: [(HTTPRequest.Method, String, String?)] = [
         #expect(status == .unauthorized)
     }
     #expect(await fake.recorded().isEmpty)
+}
+
+@Test func putLightTempIsOneHuePutAndTheResponseHasTemp() async throws {
+    let fake = FakeHueTransport()
+    let (status, body) = try await call(app(feed(fake)), .put, "/api/lights/\(HueFixture.light(2))", body: #"{"temp":2700}"#)
+    #expect(status == .ok)
+    #expect(!body.contains("null"))
+    let light = try JSONDecoder().decode(Light.self, from: Data(body.utf8))
+    #expect(light.on && light.temp == 2703 && light.tempRange != nil)
+    let sent = await puts(fake)
+    #expect(sent.count == 1)
+}
+
+@Test func putLightColorLeavesWhiteMode() async throws {
+    let fake = FakeHueTransport()
+    let (status, body) = try await call(app(feed(fake)), .put, "/api/lights/\(HueFixture.light(1))", body: ##"{"color":"#ff8a3d"}"##)
+    #expect(status == .ok)
+    #expect(!body.contains("null"))
+    let light = try JSONDecoder().decode(Light.self, from: Data(body.utf8))
+    #expect(light.temp == nil && light.color != nil)
+    #expect(!body.contains("\"temp\""))
+    #expect(await puts(fake).count == 1)
+}
+
+@Test func putLightBadTempOrColorIs400WithoutAHuePut() async throws {
+    let fake = FakeHueTransport()
+    let a = app(feed(fake))
+    let cases = [
+        (HueFixture.light(1), ##"{"temp":2700,"color":"#ff8a3d"}"##),
+        (HueFixture.light(1), ##"{"color":"#000000"}"##),
+        (HueFixture.light(4), #"{"temp":2700}"#),
+        (HueFixture.light(4), ##"{"color":"#ff8a3d"}"##),
+    ]
+    for (id, json) in cases {
+        let (status, body) = try await call(a, .put, "/api/lights/\(id)", body: json)
+        #expect(status == .badRequest, "\(json)")
+        #expect(body.contains("bad_request"))
+    }
+    #expect(await puts(fake).isEmpty)
+}
+
+@Test func putRoomWithTempOrColorIs400WithoutAHuePut() async throws {
+    let fake = FakeHueTransport()
+    let a = app(feed(fake))
+    for json in [#"{"temp":2700}"#, ##"{"color":"#ff8a3d"}"##] {
+        let (status, _) = try await call(a, .put, "/api/rooms/\(HueFixture.roomA)", body: json)
+        #expect(status == .badRequest)
+    }
+    #expect(await puts(fake).isEmpty)
 }

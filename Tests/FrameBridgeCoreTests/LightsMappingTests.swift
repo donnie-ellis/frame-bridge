@@ -78,8 +78,12 @@ private func state() throws -> LightsState {
     #expect(!bright.contains("icon"))
 }
 
-private func body(_ patch: LightPatch, dimmable: Bool = true) throws -> [String: Any] {
-    try #require(JSONSerialization.jsonObject(with: LightsMapping.hueBody(for: patch, dimmable: dimmable)) as? [String: Any])
+private func hueLight(_ n: Int) throws -> HueLight {
+    try #require(HueFixture.resources().lights.first { $0.id == HueFixture.light(n) })
+}
+
+private func body(_ patch: LightPatch, light n: Int = 2) throws -> [String: Any] {
+    try #require(JSONSerialization.jsonObject(with: LightsMapping.hueBody(for: patch, light: hueLight(n))) as? [String: Any])
 }
 
 @Test func hueBodyShapes() throws {
@@ -91,7 +95,7 @@ private func body(_ patch: LightPatch, dimmable: Bool = true) throws -> [String:
     #expect((level["on"] as? [String: Bool]) == ["on": true])
     #expect(((level["dimming"] as? [String: Int]) ?? [:]) == ["brightness": 60])
 
-    let plain = try body(LightPatch(level: 60), dimmable: false)
+    let plain = try body(LightPatch(level: 60), light: 4)
     #expect((plain["on"] as? [String: Bool]) == ["on": true])
     #expect(plain["dimming"] == nil)
 
@@ -121,4 +125,55 @@ private func body(_ patch: LightPatch, dimmable: Bool = true) throws -> [String:
 @Test func recallBodyIsTheSpecBody() throws {
     let object = try #require(JSONSerialization.jsonObject(with: LightsMapping.recallBody) as? [String: [String: String]])
     #expect(object == ["recall": ["action": "active"]])
+}
+
+@Test func lightsGetTempRangeAndColorOnlyWhereTheyApply() throws {
+    let s = try state()
+    let one = try #require(s.devices.first { $0.id == HueFixture.light(1) })
+    #expect(one.temp == 2703 && one.tempRange == Light.TempRange(min: 2000, max: 6536))
+    #expect(one.color?.range(of: "^#[0-9a-f]{6}$", options: .regularExpression) != nil)
+    // Colour mode and off: no temp, still tempRange and color.
+    let two = try #require(s.devices.first { $0.id == HueFixture.light(2) })
+    #expect(two.temp == nil && two.tempRange != nil && two.color != nil && !two.on)
+    // A light with neither capability has none of the new fields, and no null.
+    let four = try #require(s.devices.first { $0.id == HueFixture.light(4) })
+    #expect(four.temp == nil && four.tempRange == nil && four.color == nil)
+    let json = String(decoding: try JSONEncoder().encode(four), as: UTF8.self)
+    #expect(!json.contains("temp") && !json.contains("color") && !json.contains("null"))
+    let jsonTwo = String(decoding: try JSONEncoder().encode(two), as: UTF8.self)
+    #expect(!jsonTwo.contains("\"temp\"") && !jsonTwo.contains("null"))
+}
+
+@Test func whiteAmbianceLightHasTempButNoColor() throws {
+    var l = try hueLight(3)
+    l.colorTemperature = HueLight.ColorTemperature(mirek: 250, mirekValid: true, mirekSchema: .init(mirekMinimum: 153, mirekMaximum: 454))
+    let mapped = LightsMapping.light(l, room: "r")
+    #expect(mapped.temp == 4000 && mapped.tempRange == Light.TempRange(min: 2203, max: 6536) && mapped.color == nil)
+}
+
+@Test func hueBodyForTempAndColor() throws {
+    let temp = try body(LightPatch(temp: 2700))
+    #expect((temp["on"] as? [String: Bool]) == ["on": true])
+    #expect((temp["color_temperature"] as? [String: Int]) == ["mirek": 370])
+    #expect(temp["color"] == nil)
+    // Clamped to the light's range.
+    #expect((try body(LightPatch(temp: 10000))["color_temperature"] as? [String: Int]) == ["mirek": 153])
+
+    let colored = try body(LightPatch(on: true, color: "#ff8a3d"))
+    let xy = try #require((colored["color"] as? [String: Any])?["xy"] as? [String: Double])
+    #expect(xy.count == 2 && colored["color_temperature"] == nil)
+    let off = try body(LightPatch(on: false, temp: 2700))
+    #expect((off["on"] as? [String: Bool]) == ["on": false])
+}
+
+@Test func hueBodyRejectsWhatTheLightCannotDo() throws {
+    let plain = try hueLight(4)
+    for patch in [LightPatch(temp: 2700), LightPatch(color: "#ff8a3d")] {
+        do {
+            _ = try LightsMapping.hueBody(for: patch, light: plain)
+            Issue.record("expected 400")
+        } catch {
+            #expect(error.error == "bad_request")
+        }
+    }
 }
