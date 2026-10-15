@@ -25,7 +25,10 @@ private let ny = TimeZone(identifier: "America/New_York")!
 @Test func namesAndShape() throws {
     let n = ChangeNotice.now(timeZone: ny)
     let events: [(ServerEvent, String)] = [(.calendar(n), "calendar"), (.shopping(n), "shopping"), (.weather(n), "weather"), (.photos(n), "photos"),
-        (.light(Light(id: "a", room: "b", name: "c", on: true, level: 1)), "light")]
+        (.light(Light(id: "a", room: "b", name: "c", on: true, level: 1)), "light"),
+        (.room(Room(id: "r", name: "n", kind: .room, on: true, level: 5, lights: ["a"])), "room"),
+        (.scene(Scene(id: "s", room: "r", name: "n", active: false)), "scene"),
+        (.lights(n), "lights")]
     for (event, name) in events {
         let text = try event.encoded()
         #expect(text.hasPrefix("event: \(name)\ndata: "))

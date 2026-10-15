@@ -5,7 +5,7 @@ import Logging
 import ServiceLifecycle
 
 /// The `info.version` of `frame-bridge.openapi.yaml` this build implements.
-public let contractVersion = "0.3.0"
+public let contractVersion = "0.4.0"
 
 public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: CalendarFeed? = nil, shopping: ShoppingFeed? = nil, photos: PhotosFeed? = nil, images: ImageCache? = nil, lights: LightsFeed? = nil, events: EventHub = EventHub()) -> Router<FrameRequestContext> {
     let router = Router(context: FrameRequestContext.self)
@@ -171,17 +171,20 @@ public func buildApplication(config: Config) -> some ApplicationProtocol {
     var lightsService: LightsService?
     if let hueConfig = config.hue {
         var client: HueClient?
+        var streamTransport: URLSessionHueTransport?
         do {
             if let credentials = try KeychainHueCredentialStore().load() {
-                client = HueClient(transport: URLSessionHueTransport(bridge: hueConfig.bridge, applicationKey: credentials.applicationKey, pin: credentials.certificateSHA256))
+                let transport = URLSessionHueTransport(bridge: hueConfig.bridge, applicationKey: credentials.applicationKey, pin: credentials.certificateSHA256)
+                client = HueClient(transport: transport)
+                streamTransport = transport
             }
         } catch {
             logger.warning("hue credentials could not be read from the Keychain")
         }
         if client == nil { logger.warning("hue not paired: run FrameBridge hue-pair <bridge ip>") }
-        let feed = LightsFeed(config: hueConfig, client: client)
+        let feed = LightsFeed(config: hueConfig, client: client, events: events)
         lights = feed
-        if client != nil { lightsService = LightsService(feed: feed) }
+        if let streamTransport { lightsService = LightsService(feed: feed, transport: streamTransport) }
     } else {
         logger.info("lights not configured")
     }

@@ -39,7 +39,7 @@ func leafDER(of trust: SecTrust) -> Data? {
 }
 
 /// The real bridge connection. Tests never construct this.
-final class URLSessionHueTransport: HueTransport, Sendable {
+final class URLSessionHueTransport: HueTransport, HueEventStreamTransport, Sendable {
     private let bridge: String
     private let applicationKey: String
     private let session: URLSession
@@ -65,6 +65,48 @@ final class URLSessionHueTransport: HueTransport, Sendable {
             return (http.statusCode, data)
         } catch is URLError {
             throw HueClientError.unreachable
+        }
+    }
+
+    /// The event stream lives at `/eventstream/clip/v2`, not under `/clip/v2/`. Chunks are one
+    /// line each: `.lines` would drop the blank lines that end a message.
+    func eventStream() async throws -> AsyncThrowingStream<Data, any Error> {
+        guard let url = URL(string: "https://\(bridge)/eventstream/clip/v2") else { throw HueClientError.unreachable }
+        var request = URLRequest(url: url, timeoutInterval: 3600)
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.setValue(applicationKey, forHTTPHeaderField: "hue-application-key")
+        let bytes: URLSession.AsyncBytes
+        let response: URLResponse
+        do {
+            (bytes, response) = try await session.bytes(for: request)
+        } catch is URLError {
+            throw HueClientError.unreachable
+        }
+        guard let http = response as? HTTPURLResponse else { throw HueClientError.badResponse }
+        switch http.statusCode {
+        case 200..<300: break
+        case 401, 403: throw HueClientError.unauthorized
+        default: throw HueClientError.status(http.statusCode)
+        }
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    var line = Data()
+                    for try await byte in bytes {
+                        line.append(byte)
+                        if byte == 0x0A {
+                            continuation.yield(line)
+                            line = Data()
+                        }
+                    }
+                    continuation.finish()
+                } catch is URLError {
+                    continuation.finish(throwing: HueClientError.unreachable)
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 }

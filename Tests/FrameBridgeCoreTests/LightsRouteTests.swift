@@ -118,18 +118,17 @@ private let oneID = HueFixture.light(1)
     let none = try await lightsHealth(app(nil))
     #expect(none.status == .error && none.detail == "not configured")
 
-    let fake = FakeHueTransport()
-    let live = app(feed(fake))
-    let before = try await lightsHealth(live)
-    #expect(before.status == .error && before.detail == "not read yet")
-    _ = try await call(live, .get, "/api/lights")
-    let ok = try await lightsHealth(live)
+    let live = feed(FakeHueTransport())
+    let a = app(live)
+    let before = try await lightsHealth(a)
+    #expect(before.status == .error && before.detail == "Hue event stream not connected")
+    try await live.streamOpened()
+    let ok = try await lightsHealth(a)
     #expect(ok.status == .ok && ok.updatedAt != nil && ok.staleAfterSeconds == 120)
 
-    await fake.setFailure(HueClientError.unreachable)
-    _ = try await call(live, .get, "/api/lights")
-    let failed = try await lightsHealth(live)
-    #expect(failed.status == .error && failed.detail != nil)
+    await live.streamClosed(reason: "Hue Bridge not reachable")
+    let closed = try await lightsHealth(a)
+    #expect(closed.status == .error && closed.detail == "Hue Bridge not reachable")
 }
 
 private func puts(_ fake: FakeHueTransport) async -> [FakeHueTransport.Request] {
