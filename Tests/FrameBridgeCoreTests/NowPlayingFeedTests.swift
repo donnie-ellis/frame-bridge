@@ -67,11 +67,47 @@ private func feed(_ stub: StubSonosTransport, events: EventHub? = nil) -> NowPla
     let bad = await f.health()
     #expect(bad.status == .error)
     #expect(bad.detail == "speaker not reachable")
-    await stub.set(unreachable: false)
+    await stub.set(position: "position-music-next", unreachable: false)
     _ = await f.poll()
     #expect(await f.health().status == .ok)
     await hub.finishAll()
-    #expect(await Array(stream).count == 2)
+    let messages = await Array(stream)
+    #expect(messages.count == 2)
+    #expect(messages[1].contains(#""title":"Example Song 2""#))
+}
+
+@Test func trackChangeSendsASecondEvent() async throws {
+    let hub = EventHub()
+    let (_, stream) = await hub.subscribe()
+    let stub = StubSonosTransport()
+    let f = feed(stub, events: hub)
+    _ = await f.poll()
+    await stub.set(position: "position-music-next")
+    _ = await f.poll()
+    await hub.finishAll()
+    let messages = await Array(stream)
+    #expect(messages.count == 2)
+    #expect(messages.allSatisfy { $0.hasPrefix("event: nowplaying\ndata: {") })
+    #expect(messages[1].contains(#""title":"Example Song 2""#))
+    #expect(messages[1].contains(#""state":"playing""#))
+    #expect(try await f.current().title == "Example Song 2")
+}
+
+@Test func pauseSendsAnEventWithStatePaused() async throws {
+    let hub = EventHub()
+    let (_, stream) = await hub.subscribe()
+    let stub = StubSonosTransport()
+    let f = feed(stub, events: hub)
+    _ = await f.poll()
+    await stub.set(transport: "transport-paused")
+    #expect(await f.poll() == .seconds(15))
+    _ = await f.poll()
+    await hub.finishAll()
+    let messages = await Array(stream)
+    #expect(messages.count == 2)
+    #expect(messages[1].contains(#""state":"paused""#))
+    #expect(messages[1].contains(#""title":"Example Song""#))
+    #expect(try await f.current().state == .paused)
 }
 
 @Test func healthIsErrorBeforeTheFirstReading() async {
