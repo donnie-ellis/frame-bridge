@@ -5,6 +5,7 @@
   "dashboardDir": "/Users/<you>/Library/Application Support/frame-bridge/dashboard",
   "weather": { "latitude": 0.0, "longitude": 0.0, "unit": "celsius" },
   "photos": { "album": "Frame" },
+  "sonos": { "host": "192.0.2.10", "room": "<room name>" },
   "hue": { "bridge": "<bridge ip>", "sceneIcons": { "Dinner": "utensils", "<scene name>": "<icon name from dashboard/js/icons.js>" } },
   "calendar": {
     "people": ["alex", "jordan", "maya", "otto"],

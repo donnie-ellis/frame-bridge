@@ -21,7 +21,7 @@
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>frame-bridge shows the family calendar on the wall dashboard.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>frame-bridge controls the Hue lights on the wall dashboard.</string>
+	<string>frame-bridge controls the Hue lights and shows what's playing on Sonos on the wall dashboard.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>frame-bridge shows the Frame album on the wall dashboard.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>

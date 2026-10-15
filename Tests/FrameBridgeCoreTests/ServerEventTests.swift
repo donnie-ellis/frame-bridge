@@ -28,7 +28,8 @@ private let ny = TimeZone(identifier: "America/New_York")!
         (.light(Light(id: "a", room: "b", name: "c", on: true, level: 1)), "light"),
         (.room(Room(id: "r", name: "n", kind: .room, on: true, level: 5, lights: ["a"])), "room"),
         (.scene(Scene(id: "s", room: "r", name: "n", active: false)), "scene"),
-        (.lights(n), "lights")]
+        (.lights(n), "lights"),
+        (.nowplaying(NowPlaying(room: "Kitchen", state: .playing, source: .tv)), "nowplaying")]
     for (event, name) in events {
         let text = try event.encoded()
         #expect(text.hasPrefix("event: \(name)\ndata: "))
@@ -42,4 +43,15 @@ private let ny = TimeZone(identifier: "America/New_York")!
 @Test func constants() {
     #expect(SSE.retry == "retry: 5000\n\n")
     #expect(SSE.ping == ": ping\n\n")
+}
+
+@Test func nowPlayingMatchesSpecExample() throws {
+    let value = NowPlaying(room: "Kitchen", state: .playing, title: "Example Song", artist: "Example Artist", album: "Example Album", art: true, source: .music)
+    let text = try ServerEvent.nowplaying(value).encoded()
+    #expect(text.hasPrefix("event: nowplaying\ndata: {"))
+    let data = Data(text.split(separator: "\n")[1].dropFirst("data: ".count).utf8)
+    #expect(try JSONDecoder().decode(NowPlaying.self, from: data) == value)
+    #expect(text.contains(#""source":"music""#))
+    let tv = try ServerEvent.nowplaying(NowPlaying(room: "Kitchen", state: .playing, source: .tv)).encoded()
+    #expect(tv.contains(#""source":"tv""#) && !tv.contains("title") && !tv.contains("art"))
 }
