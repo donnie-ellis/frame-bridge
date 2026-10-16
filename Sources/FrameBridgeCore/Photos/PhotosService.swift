@@ -1,15 +1,18 @@
 import Foundation
+import ImageIO
 import Logging
 import ServiceLifecycle
 
 /// Photos lifecycle: asks for access, builds the first list, forwards library changes (debounced)
-/// and the daily re-sample as `photos` notices, and geocodes places in the background.
+/// and the daily re-sample as `photos` notices, and computes places and focus regions in the background.
 struct PhotosService: Service {
     let library: PhotoLibrary
     let feed: PhotosFeed
     let cache: PlaceCache
     let images: ImageCache
     let geocoder: any ReverseGeocoding
+    let focusCache: FocusCache
+    let detector: any FocusDetecting
     let events: EventHub
     let debouncer = EventStoreDebouncer(interval: .seconds(2))
     var logger = Logger(label: "frame-bridge.photos")
@@ -29,6 +32,7 @@ struct PhotosService: Service {
             await withTaskGroup(of: Void.self) { group in
                 group.addTask { await midnightLoop() }
                 group.addTask { await geocodeLoop() }
+                group.addTask { await focusLoop() }
             }
         }
         await debouncer.stop()
@@ -82,6 +86,39 @@ struct PhotosService: Service {
             }
             if added { await notifyIfChanged() }
             if backOff {
+                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+            }
+        }
+    }
+
+    /// Up to 10 photos a pass, one at a time, from the cached 1280 JPEG. A failure isn't cached
+    /// (it is retried after a minute). No ids in logs.
+    private func focusLoop() async {
+        while !Task.isCancelled {
+            let todo = await feed.unfocused().prefix(10)
+            var stored = 0
+            var failed = 0
+            for id in todo {
+                do {
+                    let data = try await images.jpeg(id: id, size: .full)
+                    guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+                          let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+                    else { throw PhotoImageError() }
+                    let focus = try await detector.focus(in: image)
+                    try await focusCache.store(FocusEntry(focus: focus), for: id)
+                    stored += 1
+                } catch is CancellationError {
+                    return
+                } catch {
+                    logger.warning("focus detection failed, will retry")
+                    failed += 1
+                }
+            }
+            if stored > 0 {
+                logger.info("computed focus for \(stored) photos")
+                await debouncer.poke()
+            }
+            if todo.isEmpty || failed > 0 {
                 do { try await Task.sleep(for: .seconds(60)) } catch { return }
             }
         }

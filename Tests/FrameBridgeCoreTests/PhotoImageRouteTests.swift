@@ -19,10 +19,14 @@ private struct NoPlaces: PlaceLookup {
     func places(for ids: [String]) async -> [String: PlaceInfo] { [:] }
 }
 
+private struct NoFocus: FocusLookup {
+    func focus(for ids: [String]) async -> [String: FocusEntry] { [:] }
+}
+
 private let realShapedID = "B7E1A2C3-0000-4000-8000-000000000001/L0/001"
 
 private func app(auth: FeedHealth.Authorization = .authorized, source: StubImageSource, configured: Bool = true) -> some ApplicationProtocol {
-    let feed = PhotosFeed(config: PhotosConfig(album: "Frame"), provider: Provider(auth: auth, album: [asset(realShapedID)]), lookup: NoPlaces(), logger: Logger(label: "test"))
+    let feed = PhotosFeed(config: PhotosConfig(album: "Frame"), provider: Provider(auth: auth, album: [asset(realShapedID)]), lookup: NoPlaces(), focusLookup: NoFocus(), logger: Logger(label: "test"))
     let images = ImageCache(directory: tempDir(), source: source)
     return Application(router: buildRouter(config: TestAuth.config, photos: configured ? feed : nil, images: configured ? images : nil))
 }
