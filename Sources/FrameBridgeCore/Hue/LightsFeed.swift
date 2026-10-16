@@ -8,7 +8,9 @@ public actor LightsFeed {
     public static let staleAfterSeconds = 120
 
     private let config: HueConfig
-    private let client: HueClient?
+    private var client: HueClient?
+    /// True until the Keychain read finishes: it can wait on a prompt, so "not paired" would be wrong.
+    private var readingCredentials: Bool
     private let logger: Logger
     private let now: @Sendable () -> Date
     private var inFlight: Task<HueResources, any Error>?
@@ -21,9 +23,10 @@ public actor LightsFeed {
     private var resyncSubscribed = false
 
     init(config: HueConfig, client: HueClient?, logger: Logger = Logger(label: "frame-bridge.lights"), now: @escaping @Sendable () -> Date = Date.init,
-         events: EventHub? = nil, resyncInterval: Duration = .seconds(2)) {
+         events: EventHub? = nil, resyncInterval: Duration = .seconds(2), readingCredentials: Bool = false) {
         self.config = config
         self.client = client
+        self.readingCredentials = readingCredentials
         self.logger = logger
         self.now = now
         self.events = events
@@ -31,6 +34,15 @@ public actor LightsFeed {
     }
 
     private static let notPaired = "not paired: run FrameBridge hue-pair <bridge ip>"
+    static let waitingForKeychain = "waiting for the Keychain: allow FrameBridge if the Mac shows a prompt"
+
+    private var notPairedDetail: String { readingCredentials ? Self.waitingForKeychain : Self.notPaired }
+
+    /// The Keychain read finished: `client` is nil when there are no credentials.
+    func credentialsRead(_ client: HueClient?) {
+        self.client = client
+        readingCredentials = false
+    }
 
     func state() async throws(APIError) -> LightsState {
         if connected, let snapshot { return LightsMapping.state(snapshot, sceneIcons: config.sceneIcons) }
@@ -89,7 +101,7 @@ public actor LightsFeed {
 
     /// Concurrent callers share one fetch, so the bridge sees six requests, not six each.
     private func fetch() async throws(APIError) -> HueResources {
-        guard let client else { throw .sourceUnavailable(Self.notPaired) }
+        guard let client else { throw .sourceUnavailable(notPairedDetail) }
         let task: Task<HueResources, any Error>
         if let inFlight {
             task = inFlight
@@ -109,7 +121,7 @@ public actor LightsFeed {
     }
 
     func set(id: String, patch: LightPatch) async throws(APIError) -> Light {
-        guard let client else { throw .sourceUnavailable(Self.notPaired) }
+        guard let client else { throw .sourceUnavailable(notPairedDetail) }
         var resources = snapshot
         if resources == nil || !(resources?.lights.contains { $0.id == id } ?? false) {
             resources = try await fetch()
@@ -134,7 +146,7 @@ public actor LightsFeed {
     }
 
     func setRoom(id: String, patch: RoomPatch) async throws(APIError) -> Room {
-        guard let client else { throw .sourceUnavailable(Self.notPaired) }
+        guard let client else { throw .sourceUnavailable(notPairedDetail) }
         let resources = try await resources { LightsMapping.groupedLightID(ofGroup: id, in: $0) != nil }
         guard let groupedID = LightsMapping.groupedLightID(ofGroup: id, in: resources),
               let grouped = resources.groupedLights.first(where: { $0.id == groupedID }),
@@ -150,7 +162,7 @@ public actor LightsFeed {
     }
 
     func recallScene(id: String) async throws(APIError) -> Scene {
-        guard let client else { throw .sourceUnavailable(Self.notPaired) }
+        guard let client else { throw .sourceUnavailable(notPairedDetail) }
         let resources = try await resources { r in LightsMapping.state(r, sceneIcons: [:]).scenes.contains { $0.id == id } }
         guard var scene = LightsMapping.state(resources, sceneIcons: config.sceneIcons).scenes.first(where: { $0.id == id })
         else { throw Self.noScene }
@@ -178,7 +190,7 @@ public actor LightsFeed {
 
     func health() -> FeedHealth {
         let stale = Self.staleAfterSeconds
-        guard client != nil else { return FeedHealth(status: .error, staleAfterSeconds: stale, detail: "not paired") }
+        guard client != nil else { return FeedHealth(status: .error, staleAfterSeconds: stale, detail: readingCredentials ? Self.waitingForKeychain : "not paired") }
         if connected { return FeedHealth(status: .ok, staleAfterSeconds: stale, updatedAt: WireDate.string(from: now())) }
         return FeedHealth(status: .error, staleAfterSeconds: stale, detail: lastStreamError ?? "Hue event stream not connected",
                           updatedAt: lastRead.map { WireDate.string(from: $0) })
