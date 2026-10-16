@@ -6,13 +6,15 @@
 #   sh ~/frame-bridge-deploy/install.sh
 #
 # Stops the LaunchAgent, keeps the old app as /Applications/FrameBridge.prev.app, installs the new
-# one (and the plist, when it was copied along), and starts the agent again.
+# one (and the plist, when it was copied along), points its logs at ~/Library/Logs/frame-bridge
+# (keeping the previous install's log as frame-bridge.log.1), and starts the agent again.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 app="$here/FrameBridge.app"
 label=local.frame-bridge
 domain="gui/$(id -u)"
 agents="$HOME/Library/LaunchAgents"
+logs="$HOME/Library/Logs/frame-bridge"
 
 [ -d "$app/Contents/MacOS" ] || { echo "install.sh: no FrameBridge.app in $here" >&2; exit 1; }
 codesign -v "$app" || { echo "install.sh: $app fails codesign -v (damaged copy?)" >&2; exit 1; }
@@ -37,7 +39,14 @@ if [ -f "$here/$label.plist" ]; then
 fi
 [ -f "$agents/$label.plist" ] || { echo "install.sh: no $agents/$label.plist; copy launchd/$label.plist along" >&2; exit 1; }
 
+# launchd doesn't expand ~, and the committed plist has no username: write the absolute path here.
+mkdir -p "$logs"
+plutil -replace StandardOutPath -string "$logs/frame-bridge.log" "$agents/$label.plist"
+plutil -replace StandardErrorPath -string "$logs/frame-bridge.log" "$agents/$label.plist"
+if [ -f "$logs/frame-bridge.log" ]; then mv -f "$logs/frame-bridge.log" "$logs/frame-bridge.log.1"; fi
+
 launchctl bootstrap "$domain" "$agents/$label.plist"
 sleep 3
 launchctl print "$domain/$label" | grep -E '^[[:space:]]*(state|last exit code) =' || true
+echo "Logs: $logs/frame-bridge.log"
 echo "Rollback: launchctl bootout $domain/$label, move FrameBridge.prev.app back, bootstrap again."
