@@ -24,6 +24,7 @@ public struct APIError: HTTPResponseError, Codable, Sendable {
     }
 
     public static let unauthorized = APIError(error: "unauthorized", status: .unauthorized)
+    public static let forbidden = APIError(error: "forbidden", status: .forbidden)
     public static let notFound = APIError(error: "not_found", status: .notFound)
     public static func badRequest(_ detail: String) -> APIError {
         APIError(error: "bad_request", detail: detail, status: .badRequest)

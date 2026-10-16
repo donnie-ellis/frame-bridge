@@ -9,8 +9,12 @@ public let contractVersion = "0.8.0"
 
 public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: CalendarFeed? = nil, shopping: ShoppingFeed? = nil, photos: PhotosFeed? = nil, images: ImageCache? = nil, lights: LightsFeed? = nil, nowPlaying: NowPlayingFeed? = nil, events: EventHub = EventHub()) -> Router<FrameRequestContext> {
     let router = Router(context: FrameRequestContext.self)
+    // Outermost, so 401s and errors get the headers too.
+    router.add(middleware: SecurityHeadersMiddleware())
     // Before every route, so none can skip the token check.
     router.add(middleware: FrameTokenMiddleware(store: TokenStore(config: config)))
+    // After the token check: refuses cross-origin writes.
+    router.add(middleware: OriginCheckMiddleware())
     // After the token check, so authenticated logs carry the frame name.
     router.add(middleware: LogRequestsMiddleware(.info))
     // After the token check: files need the cookie too.
