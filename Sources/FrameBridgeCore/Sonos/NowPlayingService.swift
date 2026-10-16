@@ -5,10 +5,11 @@ struct NowPlayingService: Service {
     let feed: NowPlayingFeed
 
     func run() async throws {
-        try await cancelWhenGracefulShutdown {
+        await cancelWhenGracefulShutdown {
             while !Task.isCancelled {
                 let next = await feed.poll()
-                try await Task.sleep(for: next)
+                // A cancelled sleep is the shutdown request, not a failure.
+                do { try await Task.sleep(for: next) } catch { return }
             }
         }
     }

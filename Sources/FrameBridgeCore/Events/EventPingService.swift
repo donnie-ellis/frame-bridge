@@ -6,16 +6,12 @@ struct EventPingService: Service {
     var interval: Duration = .seconds(25)
 
     func run() async throws {
-        do {
-            try await cancelWhenGracefulShutdown {
-                while !Task.isCancelled {
-                    try await Task.sleep(for: interval)
-                    await hub.ping()
-                }
+        await cancelWhenGracefulShutdown {
+            while !Task.isCancelled {
+                // A cancelled sleep is the shutdown request, not a failure.
+                do { try await Task.sleep(for: interval) } catch { break }
+                await hub.ping()
             }
-        } catch {
-            await hub.finishAll()
-            throw error
         }
         await hub.finishAll()
     }

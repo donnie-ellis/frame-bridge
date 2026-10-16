@@ -6,10 +6,11 @@ struct WeatherRefreshService: Service {
     var interval: Duration = .seconds(1800)
 
     func run() async throws {
-        try await cancelWhenGracefulShutdown {
+        await cancelWhenGracefulShutdown {
             while !Task.isCancelled {
                 await store.refresh()
-                try await Task.sleep(for: interval)
+                // A cancelled sleep is the shutdown request, not a failure.
+                do { try await Task.sleep(for: interval) } catch { return }
             }
         }
     }
