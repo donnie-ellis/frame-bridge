@@ -79,7 +79,7 @@ struct PhotosService: Service {
                 } catch is CancellationError {
                     return
                 } catch {
-                    logger.warning("geocoding failed, backing off")
+                    logger.warning("geocoding failed, backing off", metadata: ["reason": .string(PhotoImageError.logReason(error))])
                     backOff = true
                     break
                 }
@@ -103,20 +103,22 @@ struct PhotosService: Service {
                     let data = try await images.jpeg(id: id, size: .full)
                     guard let source = CGImageSourceCreateWithData(data as CFData, nil),
                           let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
-                    else { throw PhotoImageError() }
+                    else { throw PhotoImageError.unreadableJPEG }
                     let focus = try await detector.focus(in: image)
                     try await focusCache.store(FocusEntry(focus: focus), for: id)
                     stored += 1
                 } catch is CancellationError {
                     return
                 } catch {
-                    logger.warning("focus detection failed, will retry")
+                    logger.warning("focus detection failed, will retry", metadata: ["reason": .string(PhotoImageError.logReason(error))])
                     failed += 1
                 }
             }
             if stored > 0 {
                 logger.info("computed focus for \(stored) photos")
-                await debouncer.poke()
+                // Rebuild now, as geocodeLoop does: a debounced rebuild never fires while this loop
+                // keeps poking it, so `unfocused()` would hand back the same ids forever.
+                await notifyIfChanged()
             }
             if todo.isEmpty || failed > 0 {
                 do { try await Task.sleep(for: .seconds(60)) } catch { return }

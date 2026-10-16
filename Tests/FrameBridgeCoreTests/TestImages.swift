@@ -13,13 +13,15 @@ func makeImage(_ w: Int, _ h: Int) -> CGImage {
 actor StubImageSource: ImageSource {
     private(set) var calls: [(id: String, maxEdge: Int)] = []
     var fail = false
+    var failure = PhotoImageError.timedOut
     var delay: Duration = .zero
     func set(fail: Bool) { self.fail = fail }
+    func set(failure: PhotoImageError) { fail = true; self.failure = failure }
     func set(delay: Duration) { self.delay = delay }
     func image(id: String, maxEdge: Int) async throws -> CGImage {
         calls.append((id, maxEdge))
         if delay > .zero { try await Task.sleep(for: delay) }
-        if fail { throw PhotoImageError() }
+        if fail { throw failure }
         return makeImage(2000, 1000)
     }
 }

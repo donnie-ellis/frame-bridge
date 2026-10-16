@@ -137,8 +137,6 @@ final class PhotoLibrary: NSObject, PHPhotoLibraryChangeObserver, PhotoProvider,
     }
 }
 
-struct PhotoImageError: Error {}
-
 /// Settles the image request exactly once, from the PhotoKit callback or the timeout.
 private final class ImageRequest: @unchecked Sendable {
     private let lock = NSLock()
@@ -164,11 +162,13 @@ private final class ImageRequest: @unchecked Sendable {
 extension PhotoLibrary: ImageSource {
     static let imageTimeout: Duration = .seconds(30)
 
-    /// Read only: a fetch by identifier and one image request. iCloud originals are downloaded.
+    /// Read only: a fetch by identifier and one image data request. iCloud originals are downloaded.
+    /// Not `requestImage`: on the Mac mini (Intel, macOS 15) it hands back no image and no error for
+    /// every asset, while the data request works. ImageIO then decodes and shrinks the data.
     func image(id: String, maxEdge: Int) async throws -> CGImage {
         let auth = await authorization()
-        guard auth == .authorized || auth == .limited else { throw PhotoImageError() }
-        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else { throw PhotoImageError() }
+        guard auth == .authorized || auth == .limited else { throw PhotoImageError.notAuthorized(auth) }
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else { throw PhotoImageError.assetNotFound }
         let options = PHImageRequestOptions()
         options.deliveryMode = .highQualityFormat
         options.isNetworkAccessAllowed = true
@@ -176,19 +176,26 @@ extension PhotoLibrary: ImageSource {
         let request = ImageRequest()
         let timeout = Task {
             try await Task.sleep(for: Self.imageTimeout)
-            request.finish(.failure(PhotoImageError()))
+            request.finish(.failure(PhotoImageError.timedOut))
         }
         defer { timeout.cancel() }
         return try await withCheckedThrowingContinuation { continuation in
             request.start(continuation)
-            let requestID = PHImageManager.default().requestImage(
-                for: asset, targetSize: CGSize(width: maxEdge, height: maxEdge), contentMode: .aspectFit, options: options
-            ) { image, info in
+            let requestID = PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, _, _, info in
                 let cancelled = (info?[PHImageCancelledKey] as? Bool) == true
-                if !cancelled, let cg = image?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                    request.finish(.success(cg))
+                if !cancelled, let data {
+                    if let image = ImageSizing.thumbnail(from: data, maxEdge: maxEdge) {
+                        request.finish(.success(image))
+                    } else {
+                        request.finish(.failure(PhotoImageError.undecodable))
+                    }
                 } else {
-                    request.finish(.failure(PhotoImageError()))
+                    request.finish(.failure(PhotoImageError.failure(
+                        cancelled: cancelled,
+                        inCloud: (info?[PHImageResultIsInCloudKey] as? Bool) == true,
+                        degraded: (info?[PHImageResultIsDegradedKey] as? Bool) == true,
+                        error: info?[PHImageErrorKey] as? any Error
+                    )))
                 }
             }
             request.set(requestID: requestID)

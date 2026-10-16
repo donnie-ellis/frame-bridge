@@ -1,5 +1,6 @@
 import Foundation
 import ImageIO
+import UniformTypeIdentifiers
 import Testing
 
 @testable import FrameBridgeCore
@@ -38,4 +39,36 @@ private func decodedSize(_ data: Data) -> (Int, Int)? {
     #expect(ImageSize(query: "full") == .full)
     #expect(ImageSize(query: "half") == .half)
     #expect(ImageSize(query: "huge") == .full)
+}
+
+private func jpegData(_ image: CGImage, orientation: Int? = nil) -> Data {
+    let data = NSMutableData()
+    let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil)!
+    let properties = orientation.map { [kCGImagePropertyOrientation: $0] as CFDictionary }
+    CGImageDestinationAddImage(destination, image, properties)
+    CGImageDestinationFinalize(destination)
+    return data as Data
+}
+
+@Test func thumbnailShrinksTheLongEdgeToMaxEdge() throws {
+    let image = try #require(ImageSizing.thumbnail(from: jpegData(makeImage(2048, 1536)), maxEdge: 1280))
+    #expect(image.width == 1280)
+    #expect(image.height == 960)
+}
+
+@Test func thumbnailNeverUpscales() throws {
+    let image = try #require(ImageSizing.thumbnail(from: jpegData(makeImage(400, 300)), maxEdge: 1280))
+    #expect(image.width == 400)
+    #expect(image.height == 300)
+}
+
+@Test func thumbnailAppliesTheExifOrientation() throws {
+    // 6 = rotated 90°: stored landscape, shown portrait.
+    let image = try #require(ImageSizing.thumbnail(from: jpegData(makeImage(2048, 1536), orientation: 6), maxEdge: 640))
+    #expect(image.width == 480)
+    #expect(image.height == 640)
+}
+
+@Test func thumbnailOfGarbageIsNil() {
+    #expect(ImageSizing.thumbnail(from: Data("not an image".utf8), maxEdge: 640) == nil)
 }
