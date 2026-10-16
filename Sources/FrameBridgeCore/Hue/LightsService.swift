@@ -37,10 +37,9 @@ struct LightsService: Service {
                 do { try await sleep(.seconds(1)) } catch { return }
             } catch {
                 if Task.isCancelled { return }
-                let reason = LightsFeed.reason(for: error)
-                await feed.streamClosed(reason: reason)
+                await feed.streamClosed(reason: HueFailure.streamDetail(for: error))
                 failures += 1
-                logger.warning("hue event stream failed", metadata: ["reason": .string(reason)])
+                logger.warning("hue event stream failed", metadata: HueFailure.logMetadata(for: error))
                 do { try await sleep(HueBackoff.delay(failures)) } catch { return }
             }
         }
