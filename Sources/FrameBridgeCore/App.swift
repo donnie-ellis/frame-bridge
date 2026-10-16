@@ -5,7 +5,7 @@ import Logging
 import ServiceLifecycle
 
 /// The `info.version` of `frame-bridge.openapi.yaml` this build implements.
-public let contractVersion = "0.10.0"
+public let contractVersion = "0.11.0"
 
 public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: CalendarFeed? = nil, shopping: ShoppingFeed? = nil, photos: PhotosFeed? = nil, images: ImageCache? = nil, lights: LightsFeed? = nil, nowPlaying: NowPlayingFeed? = nil, events: EventHub = EventHub()) -> Router<FrameRequestContext> {
     let router = Router(context: FrameRequestContext.self)
@@ -23,6 +23,12 @@ public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: 
     router.get("api/weather") { _, _ -> Weather in
         guard let weather else { throw APIError.sourceUnavailable("not configured") }
         return try await weather.current()
+    }
+    router.get("api/people") { _, _ -> Response in
+        guard let people = config.people, !people.isEmpty else { throw APIError.sourceUnavailable("not configured") }
+        var headers = HTTPFields()
+        headers[.contentType] = "application/json"
+        return Response(status: .ok, headers: headers, body: .init(byteBuffer: ByteBuffer(data: try JSONEncoder().encode(people))))
     }
     router.get("api/calendar") { request, _ -> Response in
         guard let calendar else { throw APIError.sourceUnavailable("not configured") }

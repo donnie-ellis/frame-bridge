@@ -11,6 +11,9 @@ public struct Config: Decodable, Sendable {
     /// Home location and unit for the forecast. Absent: the weather feed reports "not configured".
     public let weather: WeatherConfig?
 
+    /// The family, in lane order (the order here is the order served). Names are private: never log them.
+    public let people: [Person]?
+
     /// Calendars to read and who they are for. Absent: the calendar feed reports "not configured".
     public let calendar: CalendarConfig?
 
@@ -26,9 +29,10 @@ public struct Config: Decodable, Sendable {
     /// The Sonos speaker and room. Absent: the now playing routes answer 503 and `/healthz` omits `sonos`.
     public let sonos: SonosConfig?
 
-    public init(frames: [String: String], dashboardDir: String, weather: WeatherConfig? = nil, calendar: CalendarConfig? = nil, shopping: ShoppingConfig? = nil, photos: PhotosConfig? = nil, hue: HueConfig? = nil, sonos: SonosConfig? = nil) {
+    public init(frames: [String: String], dashboardDir: String, people: [Person]? = nil, weather: WeatherConfig? = nil, calendar: CalendarConfig? = nil, shopping: ShoppingConfig? = nil, photos: PhotosConfig? = nil, hue: HueConfig? = nil, sonos: SonosConfig? = nil) {
         self.frames = frames
         self.dashboardDir = dashboardDir
+        self.people = people
         self.weather = weather
         self.calendar = calendar
         self.shopping = shopping
@@ -38,12 +42,13 @@ public struct Config: Decodable, Sendable {
     }
 
     public static func decode(_ data: Data) throws -> Config {
-        let config: Config
+        let decoded: Config
         do {
-            config = try JSONDecoder().decode(Config.self, from: data)
+            decoded = try JSONDecoder().decode(Config.self, from: data)
         } catch {
             throw ConfigError.malformed(String(describing: error))
         }
+        var config = decoded
         if config.frames.isEmpty { throw ConfigError.noFrames }
         for (name, hash) in config.frames.sorted(by: { $0.key < $1.key }) {
             if name.isEmpty { throw ConfigError.badHash(frame: "(empty name)") }
@@ -54,7 +59,12 @@ public struct Config: Decodable, Sendable {
             if !(-90...90).contains(w.latitude) { throw ConfigError.badWeather(field: "latitude") }
             if !(-180...180).contains(w.longitude) { throw ConfigError.badWeather(field: "longitude") }
         }
-        if let c = config.calendar { try c.validate() }
+        if let people = config.people { try validatePeople(people) }
+        if let c = config.calendar {
+            let resolved = CalendarConfig(people: (config.people ?? []).map(\.id), calendars: c.calendars)
+            try resolved.validate()
+            config = Config(frames: config.frames, dashboardDir: config.dashboardDir, people: config.people, weather: config.weather, calendar: resolved, shopping: config.shopping, photos: config.photos, hue: config.hue, sonos: config.sonos)
+        }
         if let s = config.shopping { try s.validate() }
         if let p = config.photos { try p.validate() }
         if let h = config.hue { try h.validate() }
@@ -78,6 +88,22 @@ public struct Config: Decodable, Sendable {
         return base.appendingPathComponent("frame-bridge").appendingPathComponent("config.json")
     }
 
+    private static func validatePeople(_ people: [Person]) throws {
+        var seen = Set<String>()
+        for p in people {
+            if p.id.isEmpty { throw ConfigError.badPeople("a person has an empty id") }
+            if !seen.insert(p.id).inserted { throw ConfigError.badPeople("duplicate id \"\(p.id)\"") }
+            if p.name.isEmpty { throw ConfigError.badPeople("person \"\(p.id)\" has an empty name") }
+            if !isValidColor(p.color) { throw ConfigError.badPeople("person \"\(p.id)\" color must be lowercase #rrggbb") }
+            if let n = p.night, !isValidColor(n) { throw ConfigError.badPeople("person \"\(p.id)\" night must be lowercase #rrggbb") }
+        }
+    }
+
+    private static func isValidColor(_ color: String) -> Bool {
+        let bytes = Array(color.utf8)
+        return bytes.count == 7 && bytes[0] == 0x23 && bytes.dropFirst().allSatisfy { ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x61 && $0 <= 0x66) }
+    }
+
     private static func isValidHash(_ hash: String) -> Bool {
         let bytes = Array(hash.utf8)
         return bytes.count == 64 && bytes.allSatisfy { ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x61 && $0 <= 0x66) }
@@ -99,8 +125,20 @@ public struct WeatherConfig: Decodable, Sendable {
 
 /// Calendar title -> person ids. Titles are private: never log them above debug.
 public struct CalendarConfig: Decodable, Sendable, Equatable {
+    /// Person ids from the top-level `people` section, filled in by `Config.decode`.
     public let people: [String]
     public let calendars: [String: CalendarPeople]
+
+    private enum CodingKeys: String, CodingKey { case people, calendars }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if c.contains(.people) {
+            throw DecodingError.dataCorruptedError(forKey: .people, in: c, debugDescription: "calendar.people moved to the top-level people section")
+        }
+        people = []
+        calendars = try c.decode([String: CalendarPeople].self, forKey: .calendars)
+    }
 
     public init(people: [String], calendars: [String: CalendarPeople]) {
         self.people = people
@@ -108,14 +146,12 @@ public struct CalendarConfig: Decodable, Sendable, Equatable {
     }
 
     func validate() throws {
-        if people.isEmpty { throw ConfigError.badCalendar("\"calendar.people\" must list at least one person") }
-        if people.contains("") { throw ConfigError.badCalendar("\"calendar.people\" has an empty id") }
-        if Set(people).count != people.count { throw ConfigError.badCalendar("\"calendar.people\" has a duplicate id") }
+        if people.isEmpty { throw ConfigError.badCalendar("\"calendar\" needs at least one person in the top-level \"people\" section") }
         for (_, value) in calendars {
             guard case .ids(let ids) = value else { continue }
             if ids.isEmpty { throw ConfigError.badCalendar("a calendar maps to no people") }
             if let unknown = ids.first(where: { !people.contains($0) }) {
-                throw ConfigError.badCalendar("person \"\(unknown)\" is not in \"calendar.people\"")
+                throw ConfigError.badCalendar("person \"\(unknown)\" is not in the top-level \"people\" section")
             }
         }
     }
@@ -273,6 +309,7 @@ public enum ConfigError: Error, CustomStringConvertible, Equatable {
     case badHash(frame: String)
     case badDashboardDir
     case badWeather(field: String)
+    case badPeople(String)
     case badCalendar(String)
     case badShopping(String)
     case badPhotos(String)
@@ -286,6 +323,7 @@ public enum ConfigError: Error, CustomStringConvertible, Equatable {
         case .noFrames: "\"frames\" must list at least one frame"
         case .badDashboardDir: "\"dashboardDir\" must be an absolute path"
         case .badWeather(let field): "\"weather.\(field)\" is out of range"
+        case .badPeople(let detail): "people config: \(detail)"
         case .badCalendar(let detail): "calendar config: \(detail)"
         case .badShopping(let detail): "shopping config: \(detail)"
         case .badPhotos(let detail): "photos config: \(detail)"
