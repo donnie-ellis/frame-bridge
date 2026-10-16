@@ -32,6 +32,7 @@ let package = Package(
             dependencies: [
                 "FrameBridgeCore",
                 .product(name: "HummingbirdTesting", package: "hummingbird"),
+                .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
             ],
             resources: [.copy("Fixtures")]
         ),
