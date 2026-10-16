@@ -72,13 +72,48 @@ private func withWeather(_ weather: String) -> Data {
     }
 }
 
-private func withCalendar(_ calendar: String) -> Data {
-    Data("{\"frames\":{\"kitchen\":\"\(good)\"},\"dashboardDir\":\"/tmp/dist\",\"calendar\":\(calendar)}".utf8)
+private func withCalendar(_ calendar: String, people: String = ##"[{"id":"a","name":"A","color":"#112233"},{"id":"b","name":"B","color":"#445566"}]"##) -> Data {
+    Data("{\"frames\":{\"kitchen\":\"\(good)\"},\"dashboardDir\":\"/tmp/dist\",\"people\":\(people),\"calendar\":\(calendar)}".utf8)
+}
+
+private func withPeople(_ people: String) -> Data {
+    Data("{\"frames\":{\"kitchen\":\"\(good)\"},\"dashboardDir\":\"/tmp/dist\",\"people\":\(people)}".utf8)
+}
+
+@Test func peopleKeepOrderAndOptionalNight() throws {
+    let c = try Config.decode(withPeople(##"[{"id":"z","name":"Z","color":"#112233","night":"#aabbcc"},{"id":"a","name":"A","color":"#445566"}]"##))
+    #expect(c.people?.map(\.id) == ["z", "a"])
+    #expect(c.people?[0].night == "#aabbcc")
+    #expect(c.people?[1].night == nil)
+    #expect(try Config.decode(json("{\"kitchen\":\"\(good)\"}")).people == nil)
+}
+
+@Test func peopleAcceptsFamilyId() throws {
+    #expect(try Config.decode(withPeople(##"[{"id":"family","name":"F","color":"#112233"}]"##)).people?.count == 1)
+}
+
+@Test func peopleRejectsBadEntries() {
+    for bad in [
+        ##"[{"id":"a","name":"A","color":"#112233"},{"id":"a","name":"B","color":"#112233"}]"##,
+        ##"[{"id":"","name":"A","color":"#112233"}]"##,
+        ##"[{"id":"a","name":"","color":"#112233"}]"##,
+        ##"[{"id":"a","name":"A","color":"#2D5BFF"}]"##,
+        ##"[{"id":"a","name":"A","color":"#abc"}]"##,
+        ##"[{"id":"a","name":"A","color":"2d5bff"}]"##,
+        ##"[{"id":"a","name":"A","color":"#112233","night":"#GGGGGG"}]"##,
+    ] {
+        do {
+            _ = try Config.decode(withPeople(bad))
+            Issue.record("accepted \(bad)")
+        } catch let error as ConfigError {
+            guard case .badPeople = error else { Issue.record("wrong error \(error)"); continue }
+        } catch { Issue.record("wrong error \(error)") }
+    }
 }
 
 @Test func calendarIsOptionalAndParses() throws {
     #expect(try Config.decode(json("{\"kitchen\":\"\(good)\"}")).calendar == nil)
-    let c = try Config.decode(withCalendar("{\"people\":[\"a\",\"b\"],\"calendars\":{\"Family\":\"all\",\"Mine\":[\"a\"]}}"))
+    let c = try Config.decode(withCalendar("{\"calendars\":{\"Family\":\"all\",\"Mine\":[\"a\"]}}"))
     #expect(c.calendar?.people(for: "Family") == ["a", "b"])
     #expect(c.calendar?.people(for: "Mine") == ["a"])
     #expect(c.calendar?.people(for: "Other") == nil)
@@ -86,15 +121,26 @@ private func withCalendar(_ calendar: String) -> Data {
 
 @Test func calendarRejectsBadSections() {
     for bad in [
-        "{\"people\":[],\"calendars\":{}}",
-        "{\"people\":[\"a\",\"a\"],\"calendars\":{}}",
-        "{\"people\":[\"\"],\"calendars\":{}}",
-        "{\"people\":[\"a\"],\"calendars\":{\"X\":[]}}",
-        "{\"people\":[\"a\"],\"calendars\":{\"X\":[\"zed\"]}}",
-        "{\"people\":[\"a\"],\"calendars\":{\"X\":\"everyone\"}}",
+        "{\"calendars\":{\"X\":[]}}",
+        "{\"calendars\":{\"X\":[\"zed\"]}}",
+        "{\"calendars\":{\"X\":\"everyone\"}}",
+        "{\"people\":[\"a\"],\"calendars\":{}}",
     ] {
         #expect(throws: ConfigError.self) { try Config.decode(withCalendar(bad)) }
     }
+}
+
+@Test func calendarWithoutPeopleIsRejected() {
+    #expect(throws: ConfigError.self) { try Config.decode(withCalendar("{\"calendars\":{}}", people: "[]")) }
+    let data = Data("{\"frames\":{\"kitchen\":\"\(good)\"},\"dashboardDir\":\"/tmp/dist\",\"calendar\":{\"calendars\":{}}}".utf8)
+    #expect(throws: ConfigError.self) { try Config.decode(data) }
+}
+
+@Test func leftoverCalendarPeopleSaysItMoved() {
+    do {
+        _ = try Config.decode(withCalendar("{\"people\":[\"a\"],\"calendars\":{}}"))
+        Issue.record("accepted")
+    } catch { #expect(String(describing: error).contains("moved to the top-level people section")) }
 }
 
 private func withShopping(_ shopping: String) -> Data {
