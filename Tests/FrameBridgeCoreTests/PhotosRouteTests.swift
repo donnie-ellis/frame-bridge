@@ -31,8 +31,13 @@ private struct NoPlaces: PlaceLookup {
     func places(for ids: [String]) async -> [String: PlaceInfo] { [:] }
 }
 
-private func feed(_ p: any PhotoProvider) -> PhotosFeed {
-    PhotosFeed(config: PhotosConfig(album: "Frame"), provider: p, lookup: NoPlaces(), logger: Logger(label: "test"))
+private struct StubFocus: FocusLookup {
+    var entries: [String: FocusEntry] = [:]
+    func focus(for ids: [String]) async -> [String: FocusEntry] { entries.filter { ids.contains($0.key) } }
+}
+
+private func feed(_ p: any PhotoProvider, focus: any FocusLookup = StubFocus()) -> PhotosFeed {
+    PhotosFeed(config: PhotosConfig(album: "Frame"), provider: p, lookup: NoPlaces(), focusLookup: focus, logger: Logger(label: "test"))
 }
 
 private func get(_ app: some ApplicationProtocol, _ uri: String, headers: HTTPFields = TestAuth.headers) async throws -> (HTTPResponse.Status, String) {
@@ -146,4 +151,43 @@ private let sample = [asset("AAAA-0000/L0/001", fav: true), asset("BBBB-0000/L0/
     let f = feed(StubProvider(album: [asset("A", lat: 1, lon: 2), asset("B")]))
     _ = await f.rebuild()
     #expect(await f.uncachedLocated().map(\.id) == ["A"])
+}
+
+@Test func photosServeFocusOnlyWhenCached() async throws {
+    let focus = StubFocus(entries: [
+        "AAAA-0000/L0/001": FocusEntry(focus: PhotoFocus(x: 0.1, y: 0.2, w: 0.3, h: 0.4)),
+        "BBBB-0000/L0/001": FocusEntry(focus: nil),
+    ])
+    let (status, body) = try await get(app(feed(StubProvider(album: sample + [asset("CCCC-0000/L0/001")]), focus: focus)), "/api/photos")
+    #expect(status == .ok)
+    #expect(!body.contains("null"))
+    let photos = try JSONDecoder().decode([Photo].self, from: Data(body.utf8))
+    #expect(photos.first { $0.id == "AAAA-0000/L0/001" }?.focus == PhotoFocus(x: 0.1, y: 0.2, w: 0.3, h: 0.4))
+    #expect(photos.filter { $0.focus == nil }.count == 2)
+    let json = try #require(try JSONSerialization.jsonObject(with: Data(body.utf8)) as? [[String: Any]])
+    let withFocus = json.filter { $0["focus"] != nil }
+    #expect(withFocus.count == 1)
+    #expect(Set((withFocus[0]["focus"] as? [String: Double] ?? [:]).keys) == ["x", "y", "w", "h"])
+}
+
+private actor MutableFocus: FocusLookup {
+    var entries: [String: FocusEntry] = [:]
+    func set(_ entry: FocusEntry, for id: String) { entries[id] = entry }
+    func focus(for ids: [String]) async -> [String: FocusEntry] { entries.filter { ids.contains($0.key) } }
+}
+
+@Test func newFocusMakesRebuildReportAChange() async throws {
+    let lookup = MutableFocus()
+    let f = feed(StubProvider(album: sample), focus: lookup)
+    #expect(await f.rebuild() == false)
+    #expect(await f.rebuild() == false)
+    await lookup.set(FocusEntry(focus: PhotoFocus(x: 0, y: 0, w: 0.5, h: 0.5)), for: "AAAA-0000/L0/001")
+    #expect(await f.rebuild() == true)
+}
+
+@Test func unfocusedListsOnlyIDsWithoutEntry() async throws {
+    let focus = StubFocus(entries: ["AAAA-0000/L0/001": FocusEntry(focus: nil)])
+    let f = feed(StubProvider(album: sample), focus: focus)
+    _ = await f.rebuild()
+    #expect(await f.unfocused() == ["BBBB-0000/L0/001"])
 }

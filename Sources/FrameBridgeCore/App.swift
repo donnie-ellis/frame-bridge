@@ -183,11 +183,12 @@ public func buildApplication(config: Config) -> some ApplicationProtocol {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches")
         let cache = PlaceCache(directory: caches.appendingPathComponent("frame-bridge"))
-        let feed = PhotosFeed(config: photosConfig, provider: library, lookup: cache)
+        let focusCache = FocusCache(directory: caches.appendingPathComponent("frame-bridge"))
+        let feed = PhotosFeed(config: photosConfig, provider: library, lookup: cache, focusLookup: focusCache)
         let imageCache = ImageCache(directory: caches.appendingPathComponent("frame-bridge/images"), source: library)
         photos = feed
         images = imageCache
-        photosService = PhotosService(library: library, feed: feed, cache: cache, images: imageCache, geocoder: CLGeocoderSource(), events: events)
+        photosService = PhotosService(library: library, feed: feed, cache: cache, images: imageCache, geocoder: CLGeocoderSource(), focusCache: focusCache, detector: VisionFocusDetector(), events: events)
     } else {
         logger.info("photos not configured")
     }

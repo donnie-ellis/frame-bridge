@@ -21,6 +21,10 @@ protocol PlaceLookup: Sendable {
     func places(for ids: [String]) async -> [String: PlaceInfo]
 }
 
+protocol FocusLookup: Sendable {
+    func focus(for ids: [String]) async -> [String: FocusEntry]
+}
+
 enum PhotoSourceError: Error { case albumNotFound }
 
 /// Holds the last built list. The request path only reads it (or builds it once if none exists),
@@ -32,19 +36,22 @@ public actor PhotosFeed {
     private let config: PhotosConfig
     private let provider: any PhotoProvider
     private let lookup: any PlaceLookup
+    private let focusLookup: any FocusLookup
     private let calendar: Calendar
     private let logger: Logger
     private let now: @Sendable () -> Date
     private var photos: [Photo]?
     private var sampled: [AssetValues] = []
     private var knownPlaces: [String: PlaceInfo] = [:]
+    private var knownFocus: [String: FocusEntry] = [:]
     private var lastBuilt: Date?
     private var lastError: String?
 
-    init(config: PhotosConfig, provider: any PhotoProvider, lookup: any PlaceLookup, calendar: Calendar = .current, logger: Logger = Logger(label: "frame-bridge.photos"), now: @escaping @Sendable () -> Date = Date.init) {
+    init(config: PhotosConfig, provider: any PhotoProvider, lookup: any PlaceLookup, focusLookup: any FocusLookup, calendar: Calendar = .current, logger: Logger = Logger(label: "frame-bridge.photos"), now: @escaping @Sendable () -> Date = Date.init) {
         self.config = config
         self.provider = provider
         self.lookup = lookup
+        self.focusLookup = focusLookup
         self.calendar = calendar
         self.logger = logger
         self.now = now
@@ -97,9 +104,11 @@ public actor PhotosFeed {
             }
             let chosen = PhotoSampling.sample(album: album, onThisDay: onThisDay, seed: seed)
             let places = await lookup.places(for: chosen.map(\.id))
-            photos = PhotoMapping.photos(chosen, places: places, macTimeZone: calendar.timeZone)
+            let focus = await focusLookup.focus(for: chosen.map(\.id))
+            photos = PhotoMapping.photos(chosen, places: places, macTimeZone: calendar.timeZone, focus: focus)
             sampled = chosen
             knownPlaces = places
+            knownFocus = focus
             lastBuilt = today
             lastError = nil
             return true
@@ -116,6 +125,11 @@ public actor PhotosFeed {
     /// Assets in the current list that have a location and no cache entry yet, for the geocode loop.
     func uncachedLocated() -> [AssetValues] {
         sampled.filter { $0.latitude != nil && $0.longitude != nil && knownPlaces[$0.id] == nil }
+    }
+
+    /// Ids in the current list with no focus entry yet (a cached "nothing found" counts), for the focus loop.
+    func unfocused() -> [String] {
+        sampled.map(\.id).filter { knownFocus[$0] == nil }
     }
 
     func health() async -> FeedHealth {

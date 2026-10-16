@@ -96,8 +96,8 @@ enum PhotoMapping {
     }
 
     /// `places` is the geocode cache: a missing or negative entry omits `place` and the date falls
-    /// back to the Mac's zone. `fav` is passed through as read.
-    static func photos(_ values: [AssetValues], places: [String: PlaceInfo], macTimeZone: TimeZone) -> [Photo] {
+    /// back to the Mac's zone. `focus` is the focus cache: a missing or negative entry omits it. `fav` is passed through as read.
+    static func photos(_ values: [AssetValues], places: [String: PlaceInfo], macTimeZone: TimeZone, focus: [String: FocusEntry] = [:]) -> [Photo] {
         let dated: [(AssetValues, Date, String)] = values.compactMap { v in
             guard let created = v.creationDate else { return nil }
             let zone = places[v.id]?.timeZone.flatMap { TimeZone(identifier: $0) }
@@ -105,7 +105,7 @@ enum PhotoMapping {
         }
         let tags = tags(for: dated.map { TagInput(id: $0.0.id, date: $0.2, creationDate: $0.1, latitude: $0.0.latitude, longitude: $0.0.longitude) })
         return dated.map { v, _, date in
-            Photo(id: v.id, o: orientation(width: v.pixelWidth, height: v.pixelHeight), date: date, place: places[v.id]?.place, tag: tags[v.id] ?? date + "-1", fav: v.isFavorite)
+            Photo(id: v.id, o: orientation(width: v.pixelWidth, height: v.pixelHeight), date: date, place: places[v.id]?.place, tag: tags[v.id] ?? date + "-1", fav: v.isFavorite, focus: focus[v.id]?.focus)
         }
     }
 }
