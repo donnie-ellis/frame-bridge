@@ -116,7 +116,7 @@ public actor PhotosFeed {
             logger.warning("photos album not found")
             lastError = "album not found"
         } catch {
-            logger.warning("photos read failed")
+            logger.warning("photos read failed", metadata: ["reason": .string(PhotoImageError.logReason(error))])
             lastError = "photos read failed"
         }
         return false

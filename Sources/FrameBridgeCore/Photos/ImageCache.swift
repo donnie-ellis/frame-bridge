@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import Logging
 
 /// Where the pixels come from. The real one is PhotoKit; tests use a generated image.
 protocol ImageSource: Sendable {
@@ -11,10 +12,12 @@ public actor ImageCache {
     private let directory: URL
     private let source: any ImageSource
     private var inFlight: [String: Task<Data, any Error>] = [:]
+    private let logger: Logger
 
-    init(directory: URL, source: any ImageSource) {
+    init(directory: URL, source: any ImageSource, logger: Logger = Logger(label: "frame-bridge.photos")) {
         self.directory = directory
         self.source = source
+        self.logger = logger
     }
 
     func jpeg(id: String, size: ImageSize) async throws(APIError) -> Data {
@@ -41,7 +44,9 @@ public actor ImageCache {
             return data
         } catch {
             inFlight[name] = nil
-            throw .sourceUnavailable("photo image unavailable")
+            // No id: the reason and the size are enough to diagnose.
+            logger.warning("photo image failed", metadata: ["reason": .string(PhotoImageError.logReason(error)), "size": .string(size.rawValue)])
+            throw .sourceUnavailable((error as? PhotoImageError)?.detail ?? "photo image unavailable")
         }
     }
 

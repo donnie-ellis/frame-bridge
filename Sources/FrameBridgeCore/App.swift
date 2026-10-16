@@ -231,6 +231,7 @@ public func buildApplication(config: Config) -> some ApplicationProtocol {
         configuration: .init(address: .hostname("0.0.0.0", port: 8787), serverName: "frame-bridge")
     )
     app.addServices(EventPingService(hub: events))
+    app.addServices(LogFileLimitService())
     if let weather { app.addServices(WeatherRefreshService(store: weather)) }
     if let eventStoreService { app.addServices(eventStoreService) }
     if let photosService { app.addServices(photosService) }
