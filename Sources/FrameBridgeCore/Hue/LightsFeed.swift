@@ -83,12 +83,8 @@ public actor LightsFeed {
         do {
             await replaceCache(try await client.resources())
         } catch {
-            logger.warning("hue resync failed", metadata: ["reason": .string(Self.reason(for: error))])
+            logger.warning("hue resync failed", metadata: HueFailure.logMetadata(for: error))
         }
-    }
-
-    static func reason(for error: any Error) -> String {
-        apiError(error, notFound: .sourceUnavailable("Hue Bridge not reachable")).detail ?? "Hue Bridge not reachable"
     }
 
     /// Concurrent callers share one fetch, so the bridge sees six requests, not six each.
@@ -175,6 +171,7 @@ public actor LightsFeed {
         switch error as? HueClientError {
         case .notFound: notFound
         case .unauthorized: .sourceUnavailable("Hue application key rejected: run hue-pair")
+        case .pinMismatch: .sourceUnavailable("Hue Bridge certificate doesn't match the pin: run hue-pair")
         default: .sourceUnavailable("Hue Bridge not reachable")
         }
     }

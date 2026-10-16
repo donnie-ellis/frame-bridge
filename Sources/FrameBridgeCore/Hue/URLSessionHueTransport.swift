@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import os
 import Security
 
 /// Hex SHA-256 of a certificate's DER bytes.
@@ -18,8 +19,11 @@ enum CertificatePin {
 /// Verification is never switched off.
 final class PinnedCertificateDelegate: NSObject, URLSessionDelegate, Sendable {
     let pin: String
+    private let lastRejected = OSAllocatedUnfairLock<Bool>(initialState: false)
 
     init(pin: String) { self.pin = pin }
+
+    var rejectedPin: Bool { lastRejected.withLock { $0 } }
 
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
@@ -27,8 +31,10 @@ final class PinnedCertificateDelegate: NSObject, URLSessionDelegate, Sendable {
             return (.performDefaultHandling, nil)
         }
         guard let der = leafDER(of: trust), CertificatePin.matches(der: der, pinHex: pin) else {
+            lastRejected.withLock { $0 = true }
             return (.cancelAuthenticationChallenge, nil)
         }
+        lastRejected.withLock { $0 = false }
         return (.useCredential, URLCredential(trust: trust))
     }
 }
@@ -43,11 +49,19 @@ final class URLSessionHueTransport: HueTransport, HueEventStreamTransport, Senda
     private let bridge: String
     private let applicationKey: String
     private let session: URLSession
+    private let delegate: PinnedCertificateDelegate
 
     init(bridge: String, applicationKey: String, pin: String) {
         self.bridge = bridge
         self.applicationKey = applicationKey
-        self.session = URLSession(configuration: .ephemeral, delegate: PinnedCertificateDelegate(pin: pin), delegateQueue: nil)
+        self.delegate = PinnedCertificateDelegate(pin: pin)
+        self.session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
+    }
+
+    /// The flag reflects the most recent handshake: fine with one bridge cert.
+    private func clientError(_ error: URLError) -> HueClientError {
+        let tlsCodes: [URLError.Code] = [.cancelled, .secureConnectionFailed, .serverCertificateUntrusted]
+        return HueClientError(urlError: error.code, pinRejected: delegate.rejectedPin && tlsCodes.contains(error.code))
     }
 
     func send(method: String, path: String, body: Data?) async throws -> (status: Int, data: Data) {
@@ -63,8 +77,8 @@ final class URLSessionHueTransport: HueTransport, HueEventStreamTransport, Senda
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw HueClientError.badResponse }
             return (http.statusCode, data)
-        } catch is URLError {
-            throw HueClientError.unreachable
+        } catch let error as URLError {
+            throw clientError(error)
         }
     }
 
@@ -79,8 +93,8 @@ final class URLSessionHueTransport: HueTransport, HueEventStreamTransport, Senda
         let response: URLResponse
         do {
             (bytes, response) = try await session.bytes(for: request)
-        } catch is URLError {
-            throw HueClientError.unreachable
+        } catch let error as URLError {
+            throw clientError(error)
         }
         guard let http = response as? HTTPURLResponse else { throw HueClientError.badResponse }
         switch http.statusCode {
@@ -100,8 +114,8 @@ final class URLSessionHueTransport: HueTransport, HueEventStreamTransport, Senda
                         }
                     }
                     continuation.finish()
-                } catch is URLError {
-                    continuation.finish(throwing: HueClientError.unreachable)
+                } catch let error as URLError {
+                    continuation.finish(throwing: self.clientError(error))
                 } catch {
                     continuation.finish(throwing: error)
                 }

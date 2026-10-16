@@ -311,3 +311,30 @@ private let roomCalls: [(HTTPRequest.Method, String, String?)] = [
     }
     #expect(await puts(fake).isEmpty)
 }
+
+@Test func aRestPinMismatchIs503NamingThePin() async throws {
+    let fake = FakeHueTransport()
+    await fake.setFailure(HueClientError.pinMismatch)
+    let (status, body) = try await call(app(feed(fake)), .get, "/api/lights")
+    #expect(status == .serviceUnavailable)
+    #expect(body.contains("source_unavailable") && body.contains("pin"))
+    #expect(!body.contains("bridge.invalid"))
+}
+
+@Test func healthzNamesTheStreamFailureWhileRestStillServes() async throws {
+    let fake = FakeHueTransport()
+    let live = feed(fake)
+    var service = LightsService(feed: live, transport: FakeHueEventStream(Array(repeating: .fail(.network(.cannotConnectToHost)), count: 50)), logger: Logger(label: "test"))
+    service.sleep = { _ in try await Task.sleep(for: .seconds(3600)) }
+    let task = Task { await service.connectLoop() }
+    defer { task.cancel() }
+    for _ in 0..<200 where await live.health().detail == "Hue event stream not connected" { try await Task.sleep(for: .milliseconds(10)) }
+
+    let a = app(live)
+    let (_, body) = try await call(a, .get, "/healthz")
+    let health = try JSONDecoder().decode(Health.self, from: Data(body.utf8)).feeds.lights
+    #expect(health.status == .error && health.detail == "Hue event stream: connection refused (-1004)")
+    let (status, lights) = try await call(a, .get, "/api/lights")
+    #expect(status == .ok)
+    #expect(try JSONDecoder().decode(LightsState.self, from: Data(lights.utf8)).devices.count == 4)
+}

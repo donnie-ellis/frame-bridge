@@ -12,6 +12,13 @@ enum HueClientError: Error, Equatable {
     case status(Int)
     case unreachable
     case badResponse
+    /// Only the error code is kept: a URLError carries the URL.
+    case network(URLError.Code)
+    case pinMismatch
+
+    init(urlError code: URLError.Code, pinRejected: Bool) {
+        self = pinRejected ? .pinMismatch : .network(code)
+    }
 }
 
 struct HueClient: Sendable {

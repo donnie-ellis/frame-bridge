@@ -61,7 +61,9 @@ actor FakeHueEventStream: HueEventStreamTransport {
 
 actor SleepLog {
     private(set) var delays: [Duration] = []
+    private(set) var notes: [String] = []
     func record(_ d: Duration) { delays.append(d) }
+    func note(_ text: String) { notes.append(text) }
 }
 
 @Test func backoffDoublesToSixtySeconds() {
@@ -178,4 +180,56 @@ actor SleepLog {
     #expect(await waitUntil { (try? await feed.state().devices.first { $0.id == HueFixture.light(1) }?.on) == false })
     task.cancel()
     await task.value
+}
+
+@Test func aStreamFailureLogsItsCodeAndShowsItInHealth() async throws {
+    let (logger, captured) = CapturingLogHandler.logger()
+    let stream = FakeHueEventStream([.fail(.network(.networkConnectionLost)), .open])
+    let feed = makeFeed(FakeHueTransport())
+    let seen = SleepLog()
+    var service = LightsService(feed: feed, transport: stream, logger: logger)
+    service.sleep = { delay in
+        await seen.record(delay)
+        let health = await feed.health()
+        if health.detail?.hasPrefix("Hue event stream:") == true { await seen.note(health.detail ?? "") }
+    }
+    let task = Task { await service.connectLoop() }
+    #expect(await waitUntil { await feed.health().status == .ok })
+    task.cancel()
+    await task.value
+
+    #expect(await seen.notes == ["Hue event stream: connection lost (-1005)"])
+    let warning = captured.entries.first { $0.message == "hue event stream failed" }
+    #expect(warning?.metadata == ["reason": "networkConnectionLost", "code": "-1005"])
+}
+
+@Test func aPinMismatchOnTheStreamSaysSoInHealth() async throws {
+    let stream = FakeHueEventStream([.fail(.pinMismatch), .open])
+    let feed = makeFeed(FakeHueTransport())
+    let seen = SleepLog()
+    var service = LightsService(feed: feed, transport: stream, logger: Logger(label: "test"))
+    service.sleep = { _ in
+        let detail = await feed.health().detail ?? ""
+        if detail != "Hue event stream closed" { await seen.note(detail) }
+    }
+    let task = Task { await service.connectLoop() }
+    #expect(await waitUntil { await feed.health().status == .ok })
+    task.cancel()
+    await task.value
+    #expect(await seen.notes == ["Hue Bridge certificate doesn't match the pin: run hue-pair"])
+}
+
+@Test func aResyncFailureLogsItsCode() async throws {
+    let (logger, captured) = CapturingLogHandler.logger()
+    let fake = FakeHueTransport()
+    let feed = LightsFeed(config: hue, client: HueClient(transport: fake), logger: logger, now: { fixedNow }, resyncInterval: .milliseconds(40))
+    try await feed.streamOpened()
+    await fake.setFailure(HueClientError.network(.timedOut))
+    for message in try payloads("structural") { await feed.apply(payload: message) }
+    #expect(await waitUntil { captured.entries.contains { $0.message == "hue resync failed" } })
+
+    let warning = captured.entries.first { $0.message == "hue resync failed" }
+    #expect(warning?.metadata == ["reason": "timedOut", "code": "-1001"])
+    let all = captured.entries.flatMap { $0.metadata.values.map { "\($0)" } } + [await feed.health().detail ?? ""]
+    #expect(all.allSatisfy { !$0.contains("bridge.invalid") })
 }
