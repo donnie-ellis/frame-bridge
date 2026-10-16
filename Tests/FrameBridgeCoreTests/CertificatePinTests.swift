@@ -19,3 +19,10 @@ import Testing
     #expect(!CertificatePin.matches(der: Data("cerT".utf8), pinHex: pin))
     #expect(!CertificatePin.matches(der: Data("cert".utf8), pinHex: ""))
 }
+
+/// `bytes(for:)` (the event stream) only asks the task-level challenge method, so both must exist.
+@Test func thePinIsCheckedForTheEventStreamToo() {
+    let delegate = PinnedCertificateDelegate(pin: "00")
+    #expect(delegate.responds(to: #selector(URLSessionDelegate.urlSession(_:didReceive:completionHandler:))))
+    #expect(delegate.responds(to: #selector(URLSessionTaskDelegate.urlSession(_:task:didReceive:completionHandler:))))
+}

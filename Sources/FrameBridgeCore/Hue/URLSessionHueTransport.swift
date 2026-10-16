@@ -17,7 +17,7 @@ enum CertificatePin {
 
 /// The bridge's cert is self-signed, so it's trusted only when its leaf matches the pin.
 /// Verification is never switched off.
-final class PinnedCertificateDelegate: NSObject, URLSessionDelegate, Sendable {
+final class PinnedCertificateDelegate: NSObject, URLSessionTaskDelegate, Sendable {
     let pin: String
     private let lastRejected = OSAllocatedUnfairLock<Bool>(initialState: false)
 
@@ -26,6 +26,16 @@ final class PinnedCertificateDelegate: NSObject, URLSessionDelegate, Sendable {
     var rejectedPin: Bool { lastRejected.withLock { $0 } }
 
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        evaluate(challenge)
+    }
+
+    /// `bytes(for:)` (the event stream) sends the server trust challenge only here, never to the
+    /// session-level method above: without this the stream fails with -1202.
+    func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        evaluate(challenge)
+    }
+
+    private func evaluate(_ challenge: URLAuthenticationChallenge) -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
               let trust = challenge.protectionSpace.serverTrust else {
             return (.performDefaultHandling, nil)
