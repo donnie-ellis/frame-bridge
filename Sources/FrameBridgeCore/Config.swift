@@ -29,7 +29,13 @@ public struct Config: Decodable, Sendable {
     /// The Sonos speaker and room. Absent: the now playing routes answer 503 and `/healthz` omits `sonos`.
     public let sonos: SonosConfig?
 
-    public init(frames: [String: String], dashboardDir: String, people: [Person]? = nil, weather: WeatherConfig? = nil, calendar: CalendarConfig? = nil, shopping: ShoppingConfig? = nil, photos: PhotosConfig? = nil, hue: HueConfig? = nil, sonos: SonosConfig? = nil) {
+    /// The per-person chore lists, from `people[].chores`, in people order. Filled in by `Config.decode`.
+    /// Absent (no person names a list): the chores feed reports "not configured".
+    public var chores: ChoresConfig? = nil
+
+    private enum CodingKeys: String, CodingKey { case frames, dashboardDir, weather, people, calendar, shopping, photos, hue, sonos }
+
+    public init(frames: [String: String], dashboardDir: String, people: [Person]? = nil, weather: WeatherConfig? = nil, calendar: CalendarConfig? = nil, shopping: ShoppingConfig? = nil, photos: PhotosConfig? = nil, hue: HueConfig? = nil, sonos: SonosConfig? = nil, chores: ChoresConfig? = nil) {
         self.frames = frames
         self.dashboardDir = dashboardDir
         self.people = people
@@ -39,6 +45,7 @@ public struct Config: Decodable, Sendable {
         self.photos = photos
         self.hue = hue
         self.sonos = sonos
+        self.chores = chores
     }
 
     public static func decode(_ data: Data) throws -> Config {
@@ -66,6 +73,7 @@ public struct Config: Decodable, Sendable {
             config = Config(frames: config.frames, dashboardDir: config.dashboardDir, people: config.people, weather: config.weather, calendar: resolved, shopping: config.shopping, photos: config.photos, hue: config.hue, sonos: config.sonos)
         }
         if let s = config.shopping { try s.validate() }
+        if let chores = try decodeChores(data, shoppingList: config.shopping?.list) { config.chores = chores }
         if let p = config.photos { try p.validate() }
         if let h = config.hue { try h.validate() }
         if let s = config.sonos { try s.validate() }
@@ -86,6 +94,24 @@ public struct Config: Decodable, Sendable {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
         return base.appendingPathComponent("frame-bridge").appendingPathComponent("config.json")
+    }
+
+    /// Reads `people[].chores` (a list title per person) in people order. Nil when no person has one.
+    private static func decodeChores(_ data: Data, shoppingList: String?) throws -> ChoresConfig? {
+        struct Entry: Decodable { let id: String; let chores: String? }
+        struct Top: Decodable { let people: [Entry]? }
+        let entries = (try? JSONDecoder().decode(Top.self, from: data))?.people ?? []
+        var lists: [ChoreListRef] = []
+        for e in entries {
+            guard let title = e.chores else { continue }
+            if title.isEmpty { throw ConfigError.badChores("person \"\(e.id)\" has an empty chore list name") }
+            if title == shoppingList { throw ConfigError.badChores("person \"\(e.id)\" has the shopping list as a chore list") }
+            if let other = lists.first(where: { $0.list == title }) {
+                throw ConfigError.badChores("people \"\(other.person)\" and \"\(e.id)\" share a chore list")
+            }
+            lists.append(ChoreListRef(person: e.id, list: title))
+        }
+        return lists.isEmpty ? nil : ChoresConfig(lists: lists)
     }
 
     private static func validatePeople(_ people: [Person]) throws {
@@ -216,6 +242,26 @@ public struct ShoppingConfig: Decodable, Sendable, Equatable {
     }
 }
 
+/// A person's chore list. The title is private: never log it.
+public struct ChoreListRef: Sendable, Equatable {
+    public let person: String
+    public let list: String
+
+    public init(person: String, list: String) {
+        self.person = person
+        self.list = list
+    }
+}
+
+/// The chore lists, one per person that has one, in `people` order.
+public struct ChoresConfig: Sendable, Equatable {
+    public let lists: [ChoreListRef]
+
+    public init(lists: [ChoreListRef]) {
+        self.lists = lists
+    }
+}
+
 /// The album title is private: never log it.
 public struct PhotosConfig: Decodable, Sendable, Equatable {
     public let album: String
@@ -315,6 +361,7 @@ public enum ConfigError: Error, CustomStringConvertible, Equatable {
     case badPhotos(String)
     case badHue(String)
     case badSonos(String)
+    case badChores(String)
 
     public var description: String {
         switch self {
@@ -329,6 +376,7 @@ public enum ConfigError: Error, CustomStringConvertible, Equatable {
         case .badPhotos(let detail): "photos config: \(detail)"
         case .badHue(let detail): "hue config: \(detail)"
         case .badSonos(let detail): "sonos config: \(detail)"
+        case .badChores(let detail): "chores config: \(detail)"
         case .badHash(let frame): "frame \"\(frame)\" needs a 64-character lowercase hex SHA-256 hash"
         }
     }

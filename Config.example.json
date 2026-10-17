@@ -8,8 +8,8 @@
   "sonos": { "host": "192.0.2.10", "room": "<room name>" },
   "hue": { "bridge": "<bridge ip>", "sceneIcons": { "Dinner": "utensils", "<scene name>": "<icon name from dashboard/js/icons.js>" } },
   "people": [
-    { "id": "alex", "name": "Alex", "color": "#2d5bff", "night": "#8aa4ff" },
-    { "id": "jordan", "name": "Jordan", "color": "#e5484d" },
+    { "id": "alex", "name": "Alex", "color": "#2d5bff", "night": "#8aa4ff", "chores": "<alex chore list name>" },
+    { "id": "jordan", "name": "Jordan", "color": "#e5484d", "chores": "<jordan chore list name>" },
     { "id": "maya", "name": "Maya", "color": "#30a46c" },
     { "id": "otto", "name": "Otto", "color": "#f5a623" }
   ],

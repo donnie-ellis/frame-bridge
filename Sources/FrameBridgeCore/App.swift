@@ -5,9 +5,9 @@ import Logging
 import ServiceLifecycle
 
 /// The `info.version` of `frame-bridge.openapi.yaml` this build implements.
-public let contractVersion = "0.11.0"
+public let contractVersion = "0.12.0"
 
-public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: CalendarFeed? = nil, shopping: ShoppingFeed? = nil, photos: PhotosFeed? = nil, images: ImageCache? = nil, lights: LightsFeed? = nil, nowPlaying: NowPlayingFeed? = nil, events: EventHub = EventHub()) -> Router<FrameRequestContext> {
+public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: CalendarFeed? = nil, shopping: ShoppingFeed? = nil, chores: ChoresFeed? = nil, photos: PhotosFeed? = nil, images: ImageCache? = nil, lights: LightsFeed? = nil, nowPlaying: NowPlayingFeed? = nil, events: EventHub = EventHub()) -> Router<FrameRequestContext> {
     let router = Router(context: FrameRequestContext.self)
     // Outermost, so 401s and errors get the headers too.
     router.add(middleware: SecurityHeadersMiddleware())
@@ -51,6 +51,20 @@ public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: 
         let result = try await shopping.setDone(id: id, done: patch.done)
         if result.changed { await events.shoppingChanged() }
         return result.item
+    }
+    router.get("api/chores") { _, _ -> ChoreList in
+        guard let chores else { throw APIError.sourceUnavailable("not configured") }
+        return try await chores.list()
+    }
+    router.patch("api/chores/:id") { request, context -> Chore in
+        guard let chores else { throw APIError.sourceUnavailable("not configured") }
+        guard let id = context.parameters.get("id")?.removingPercentEncoding else { throw APIError.notFound }
+        let body: ByteBuffer
+        do { body = try await request.body.collect(upTo: 4096) } catch { throw APIError.badRequest("body too large") }
+        let patch = try ChorePatch.parse(Data(buffer: body))
+        let result = try await chores.setDone(id: id, done: patch.done)
+        if result.changed { await events.choresChanged() }
+        return result.chore
     }
     router.get("api/photos") { _, _ -> Response in
         guard let photos else { throw APIError.sourceUnavailable("not configured") }
@@ -121,6 +135,12 @@ public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: 
         } else {
             shoppingHealth = .notConfigured(staleAfterSeconds: ShoppingFeed.staleAfterSeconds)
         }
+        let choresHealth: FeedHealth
+        if let chores {
+            choresHealth = await chores.health()
+        } else {
+            choresHealth = .notConfigured(staleAfterSeconds: ChoresFeed.staleAfterSeconds)
+        }
         let weatherHealth: FeedHealth
         if let weather {
             weatherHealth = await weather.health()
@@ -142,6 +162,7 @@ public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: 
         return Health(feeds: .init(
             calendar: calendarHealth,
             shopping: shoppingHealth,
+            chores: choresHealth,
             lights: lightsHealth,
             weather: weatherHealth,
             photos: photosHealth,
@@ -169,8 +190,9 @@ public func buildApplication(config: Config) -> some ApplicationProtocol {
     }
     var calendar: CalendarFeed?
     var shopping: ShoppingFeed?
+    var chores: ChoresFeed?
     var store: SharedEventStore?
-    if config.calendar != nil || config.shopping != nil { store = SharedEventStore() }
+    if config.calendar != nil || config.shopping != nil || config.chores != nil { store = SharedEventStore() }
     if let calendarConfig = config.calendar, let store {
         calendar = CalendarFeed(config: calendarConfig, provider: EventKitCalendarSource(store: store))
     } else {
@@ -181,9 +203,14 @@ public func buildApplication(config: Config) -> some ApplicationProtocol {
     } else {
         logger.info("shopping not configured")
     }
+    if let choresConfig = config.chores, let store {
+        chores = ChoresFeed(config: choresConfig, provider: EventKitChoresSource(store: store))
+    } else {
+        logger.info("chores not configured")
+    }
     var eventStoreService: EventStoreService?
     if let store {
-        eventStoreService = EventStoreService(store: store, debouncer: EventStoreDebouncer(), calendar: calendar, shopping: shopping, events: events)
+        eventStoreService = EventStoreService(store: store, debouncer: EventStoreDebouncer(), calendar: calendar, shopping: shopping, chores: chores, events: events)
     }
     var photos: PhotosFeed?
     var photosService: PhotosService?
@@ -223,7 +250,7 @@ public func buildApplication(config: Config) -> some ApplicationProtocol {
         logger.info("sonos not configured")
     }
     var app = Application(
-        router: buildRouter(config: config, weather: weather, calendar: calendar, shopping: shopping, photos: photos, images: images, lights: lights, nowPlaying: nowPlaying, events: events),
+        router: buildRouter(config: config, weather: weather, calendar: calendar, shopping: shopping, chores: chores, photos: photos, images: images, lights: lights, nowPlaying: nowPlaying, events: events),
         configuration: .init(address: .hostname("0.0.0.0", port: 8787), serverName: "frame-bridge")
     )
     app.addServices(EventPingService(hub: events))

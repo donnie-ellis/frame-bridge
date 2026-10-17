@@ -221,3 +221,31 @@ private func sonosJSON(_ sonos: String) -> Data {
         #expect(throws: ConfigError.self) { try Config.decode(sonosJSON(sonos)) }
     }
 }
+
+private func choresPeople(_ a: String?, _ b: String?) -> Data {
+    func entry(_ id: String, _ list: String?) -> String {
+        let chores = list.map { ",\"chores\":\"\($0)\"" } ?? ""
+        return "{\"id\":\"\(id)\",\"name\":\"N\",\"color\":\"#112233\"\(chores)}"
+    }
+    return Data("{\"frames\":{\"kitchen\":\"\(good)\"},\"dashboardDir\":\"/tmp/dist\",\"people\":[\(entry("a", a)),\(entry("b", b))],\"shopping\":{\"list\":\"Shop\",\"stores\":[{\"id\":\"s\",\"name\":\"S\"}],\"defaultStore\":\"s\"}}".utf8)
+}
+
+@Test func choresListsComeFromPeopleInOrder() throws {
+    let c = try Config.decode(choresPeople("L1", "L2"))
+    #expect(c.chores?.lists == [ChoreListRef(person: "a", list: "L1"), ChoreListRef(person: "b", list: "L2")])
+    #expect(try Config.decode(choresPeople(nil, "L2")).chores?.lists == [ChoreListRef(person: "b", list: "L2")])
+    #expect(try Config.decode(choresPeople(nil, nil)).chores == nil)
+    #expect(try Config.decode(json("{\"kitchen\":\"\(good)\"}")).chores == nil)
+}
+
+@Test func choresRejectsEmptyDuplicateAndShoppingList() {
+    #expect(throws: ConfigError.badChores("person \"a\" has an empty chore list name")) { try Config.decode(choresPeople("", nil)) }
+    #expect(throws: ConfigError.badChores("people \"a\" and \"b\" share a chore list")) { try Config.decode(choresPeople("L", "L")) }
+    #expect(throws: ConfigError.badChores("person \"b\" has the shopping list as a chore list")) { try Config.decode(choresPeople("L", "Shop")) }
+}
+
+@Test func peopleRouteHasNoChoresKey() async throws {
+    let c = try Config.decode(choresPeople("L1", nil))
+    let people = try #require(c.people)
+    #expect(!String(decoding: try JSONEncoder().encode(people), as: UTF8.self).contains("chores"))
+}

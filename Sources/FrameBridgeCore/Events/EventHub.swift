@@ -56,6 +56,7 @@ public actor EventHub {
 
     func calendarChanged() { send(.calendar(.now(timeZone: timeZone))) }
     func shoppingChanged() { send(.shopping(.now(timeZone: timeZone))) }
+    func choresChanged() { send(.chores(.now(timeZone: timeZone))) }
     func weatherChanged() { send(.weather(.now(timeZone: timeZone))) }
     func photosChanged() { send(.photos(.now(timeZone: timeZone))) }
     func lightChanged(_ light: Light) { send(.light(light)) }

@@ -13,9 +13,9 @@ import Testing
             let body = String(buffer: response.body)
             #expect(!body.contains("null"))
             let health = try JSONDecoder().decode(Health.self, from: Data(body.utf8))
-            #expect(health.version == "0.11.0")
+            #expect(health.version == "0.12.0")
             #expect(health.version == contractVersion)
-            for key in ["calendar", "shopping", "lights", "weather", "photos"] {
+            for key in ["calendar", "shopping", "chores", "lights", "weather", "photos"] {
                 #expect(body.contains("\"\(key)\""))
             }
             #expect(!body.contains("sonos"))
@@ -27,20 +27,26 @@ import Testing
 
 @Test func statusIsOkWhenNoFeedFails() {
     let ok = FeedHealth(status: .ok, staleAfterSeconds: 60)
-    #expect(Health(feeds: .init(calendar: ok, shopping: ok, lights: ok, weather: ok, photos: ok)).status == .ok)
+    #expect(Health(feeds: .init(calendar: ok, shopping: ok, chores: ok, lights: ok, weather: ok, photos: ok)).status == .ok)
+}
+
+@Test func choresAloneInErrorIsDegraded() {
+    let ok = FeedHealth(status: .ok, staleAfterSeconds: 60)
+    let bad = FeedHealth(status: .error, staleAfterSeconds: 60, detail: "x")
+    #expect(Health(feeds: .init(calendar: ok, shopping: ok, chores: bad, lights: ok, weather: ok, photos: ok)).status == .degraded)
 }
 
 @Test func weatherAloneInErrorIsDegraded() {
     let ok = FeedHealth(status: .ok, staleAfterSeconds: 60)
     let bad = FeedHealth(status: .error, staleAfterSeconds: 60, detail: "x")
-    #expect(Health(feeds: .init(calendar: ok, shopping: ok, lights: ok, weather: bad, photos: ok)).status == .degraded)
+    #expect(Health(feeds: .init(calendar: ok, shopping: ok, chores: ok, lights: ok, weather: bad, photos: ok)).status == .degraded)
 }
 
 @Test func sonosInErrorIsDegradedOnlyWhenPresent() {
     let ok = FeedHealth(status: .ok, staleAfterSeconds: 60)
     let bad = FeedHealth(status: .error, staleAfterSeconds: 60, detail: "x")
-    #expect(Health(feeds: .init(calendar: ok, shopping: ok, lights: ok, weather: ok, photos: ok)).status == .ok)
-    #expect(Health(feeds: .init(calendar: ok, shopping: ok, lights: ok, weather: ok, photos: ok, sonos: bad)).status == .degraded)
+    #expect(Health(feeds: .init(calendar: ok, shopping: ok, chores: ok, lights: ok, weather: ok, photos: ok)).status == .ok)
+    #expect(Health(feeds: .init(calendar: ok, shopping: ok, chores: ok, lights: ok, weather: ok, photos: ok, sonos: bad)).status == .degraded)
 }
 
 @Test func configuredSonosIsReportedInHealthz() async throws {

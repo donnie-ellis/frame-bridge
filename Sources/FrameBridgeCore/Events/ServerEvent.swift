@@ -4,6 +4,7 @@ import Foundation
 enum ServerEvent: Sendable {
     case calendar(ChangeNotice)
     case shopping(ChangeNotice)
+    case chores(ChangeNotice)
     case weather(ChangeNotice)
     case photos(ChangeNotice)
     case light(Light)
@@ -16,6 +17,7 @@ enum ServerEvent: Sendable {
         switch self {
         case .calendar: "calendar"
         case .shopping: "shopping"
+        case .chores: "chores"
         case .weather: "weather"
         case .photos: "photos"
         case .light: "light"
@@ -32,7 +34,7 @@ enum ServerEvent: Sendable {
         encoder.outputFormatting = [.withoutEscapingSlashes]
         let data: Data
         switch self {
-        case .calendar(let n), .shopping(let n), .weather(let n), .photos(let n), .lights(let n): data = try encoder.encode(n)
+        case .calendar(let n), .shopping(let n), .chores(let n), .weather(let n), .photos(let n), .lights(let n): data = try encoder.encode(n)
         case .light(let l): data = try encoder.encode(l)
         case .room(let r): data = try encoder.encode(r)
         case .scene(let s): data = try encoder.encode(s)

@@ -3,9 +3,11 @@ import Foundation
 import Logging
 import ServiceLifecycle
 
-/// The one `EKEventStore` for calendar and shopping. Calendar is read only. The one write is
-/// `EventKitShoppingSource.setCompleted` (isCompleted plus save(_:commit: true)). Nothing calls
-/// remove or a bare commit().
+/// The one `EKEventStore` for calendar, shopping and chores. Calendar is read only. The writes are
+/// `EventKitShoppingSource.setCompleted` and `EventKitChoresSource.setDone` (isCompleted plus
+/// save(_:commit: true)). The one exception, owner-approved in #60: undoing a recurring chore
+/// restores the original's due date and removes the completed copy (`ChoreUndo`), in a chore list
+/// only. Nothing else calls remove or a bare commit().
 // @unchecked: EKEventStore is documented as usable from any thread for reads, and `denied` is only
 // written once, before the observer starts.
 final class SharedEventStore: @unchecked Sendable {
@@ -102,6 +104,7 @@ struct EventStoreService: Service {
     let debouncer: EventStoreDebouncer
     let calendar: CalendarFeed?
     let shopping: ShoppingFeed?
+    let chores: ChoresFeed?
     let events: EventHub
 
     func run() async throws {
@@ -114,9 +117,14 @@ struct EventStoreService: Service {
         if let shopping {
             let events = events
             await debouncer.subscribe { if await shopping.rebuild() { await events.shoppingChanged() } }
-            await store.requestRemindersAccess()
-            await shopping.startupCheck()
         }
+        if let chores {
+            let events = events
+            await debouncer.subscribe { if await chores.rebuild() { await events.choresChanged() } }
+        }
+        if shopping != nil || chores != nil { await store.requestRemindersAccess() }
+        await shopping?.startupCheck()
+        await chores?.startupCheck()
         let debouncer = debouncer
         let observer = NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: store.store, queue: nil) { _ in
             Task { await debouncer.poke() }
