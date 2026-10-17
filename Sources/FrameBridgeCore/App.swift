@@ -203,23 +203,13 @@ public func buildApplication(config: Config) -> some ApplicationProtocol {
         logger.info("photos not configured")
     }
     var lights: LightsFeed?
-    var lightsService: LightsService?
+    var hueCredentialsService: HueCredentialsService?
     if let hueConfig = config.hue {
-        var client: HueClient?
-        var streamTransport: URLSessionHueTransport?
-        do {
-            if let credentials = try KeychainHueCredentialStore().load() {
-                let transport = URLSessionHueTransport(bridge: hueConfig.bridge, applicationKey: credentials.applicationKey, pin: credentials.certificateSHA256)
-                client = HueClient(transport: transport)
-                streamTransport = transport
-            }
-        } catch {
-            logger.warning("hue credentials could not be read from the Keychain")
-        }
-        if client == nil { logger.warning("hue not paired: run FrameBridge hue-pair <bridge ip>") }
-        let feed = LightsFeed(config: hueConfig, client: client, events: events)
+        let feed = LightsFeed(config: hueConfig, client: nil, events: events, readingCredentials: true)
         lights = feed
-        if let streamTransport { lightsService = LightsService(feed: feed, transport: streamTransport) }
+        hueCredentialsService = HueCredentialsService(feed: feed, store: KeychainHueCredentialStore()) { credentials in
+            URLSessionHueTransport(bridge: hueConfig.bridge, applicationKey: credentials.applicationKey, pin: credentials.certificateSHA256)
+        }
     } else {
         logger.info("lights not configured")
     }
@@ -241,7 +231,7 @@ public func buildApplication(config: Config) -> some ApplicationProtocol {
     if let weather { app.addServices(WeatherRefreshService(store: weather)) }
     if let eventStoreService { app.addServices(eventStoreService) }
     if let photosService { app.addServices(photosService) }
-    if let lightsService { app.addServices(lightsService) }
+    if let hueCredentialsService { app.addServices(hueCredentialsService) }
     if let nowPlayingService { app.addServices(nowPlayingService) }
     return app
 }

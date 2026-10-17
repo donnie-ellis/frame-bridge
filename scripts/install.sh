@@ -3,7 +3,7 @@
 # folder the build was copied into:
 #
 #   scp -r build/FrameBridge.app launchd/local.frame-bridge.plist scripts/install.sh <user>@<mini>:~/frame-bridge-deploy/
-#   sh ~/frame-bridge-deploy/install.sh
+#   ssh -t <user>@<mini> sh frame-bridge-deploy/install.sh   (-t: it may ask for the keychain password)
 #
 # Stops the LaunchAgent, keeps the old app as /Applications/FrameBridge.prev.app, installs the new
 # one (and the plist, when it was copied along), points its logs at ~/Library/Logs/frame-bridge
@@ -32,6 +32,22 @@ while launchctl print "$domain/$label" >/dev/null 2>&1 && [ $i -lt 10 ]; do slee
 rm -rf /Applications/FrameBridge.prev.app
 [ -d /Applications/FrameBridge.app ] && mv /Applications/FrameBridge.app /Applications/FrameBridge.prev.app
 cp -R "$app" /Applications/
+
+# The login Keychain lets code without an Apple team ID read an item only when the build's code
+# hash is in the item's partition list, so "Always Allow" doesn't carry over to a new build and
+# the app waits on a prompt for the Hue credentials. Allow this build and the previous one (for a
+# rollback). `security` asks for the login keychain password once per item.
+hue_service=local.frame-bridge.hue
+if security find-generic-password -s "$hue_service" -a application-key >/dev/null 2>&1; then
+  cdhash() { codesign -dvvv "$1" 2>&1 | sed -n 's/^CDHash=//p'; }
+  partitions="apple-tool:,apple:,cdhash:$(cdhash /Applications/FrameBridge.app)"
+  [ -d /Applications/FrameBridge.prev.app ] && partitions="$partitions,cdhash:$(cdhash /Applications/FrameBridge.prev.app)"
+  echo "install.sh: allowing this build to read the Hue credentials (login keychain password, twice)"
+  for account in application-key certificate-sha256; do
+    security set-generic-password-partition-list -s "$hue_service" -a "$account" -S "$partitions" >/dev/null ||
+      echo "install.sh: couldn't update the Keychain item $account; allow FrameBridge on the Mac's screen instead" >&2
+  done
+fi
 
 if [ -f "$here/$label.plist" ]; then
   mkdir -p "$agents"
