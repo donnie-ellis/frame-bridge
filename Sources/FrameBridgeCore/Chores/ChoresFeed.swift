@@ -31,7 +31,13 @@ public actor ChoresFeed {
     private let now: @Sendable () -> Date
     private var lastSuccess: Date?
     private var lastError: String?
-    private var lastNotified: [Chore]?
+    private var lastNotified: Snapshot?
+    private var loggedUnexpanded: Set<String> = []
+
+    private struct Snapshot: Equatable {
+        var today: [Chore]
+        var upcoming: [UpcomingChore]
+    }
 
     init(config: ChoresConfig, provider: any ChoresProvider, logger: Logger = Logger(label: "frame-bridge.chores"), calendar: Calendar = .current, now: @escaping @Sendable () -> Date = Date.init) {
         self.config = config
@@ -42,18 +48,30 @@ public actor ChoresFeed {
     }
 
     func list() async throws(APIError) -> ChoreList {
+        let now = now()
+        return ChoreList(chores: try await read { ChoreMapping.list(byPerson: $0, now: now, calendar: self.calendar) })
+    }
+
+    func upcoming() async throws(APIError) -> UpcomingChoreList {
+        let result = try await read { ChoreMapping.upcoming(byPerson: $0, now: self.now(), calendar: self.calendar) }
+        logUnexpanded(result.unexpanded)
+        return UpcomingChoreList(chores: result.chores)
+    }
+
+    /// Reads every chore list once, maps it, and records success or failure for `/healthz`.
+    private func read<T>(_ map: ([(who: String, reminders: [ChoreReminderValues])]) -> T) async throws(APIError) -> T {
         do {
-            let result = try await fetch()
+            let result = map(try await fetch())
             lastSuccess = now()
             lastError = nil
-            return ChoreList(chores: result)
+            return result
         } catch {
             lastError = error.detail
             throw error
         }
     }
 
-    private func fetch() async throws(APIError) -> [Chore] {
+    private func fetch() async throws(APIError) -> [(who: String, reminders: [ChoreReminderValues])] {
         guard await provider.authorization() == .fullAccess else {
             throw .sourceUnavailable("reminders access not granted")
         }
@@ -65,13 +83,20 @@ public actor ChoresFeed {
             for ref in config.lists {
                 people.append((ref.person, try await provider.reminders(listTitle: ref.list, completedSince: since, until: until)))
             }
-            return ChoreMapping.list(byPerson: people, now: current, calendar: calendar)
+            return people
         } catch ChoresSourceError.listNotFound {
             logger.warning("chore list not found")
             throw .sourceUnavailable("list not found")
         } catch {
             logger.warning("reminders read failed")
             throw .sourceUnavailable("reminders read failed")
+        }
+    }
+
+    /// Warns once per reminder and reason. Never logs ids, titles or notes.
+    private func logUnexpanded(_ items: [(id: String, reason: String)]) {
+        for item in items where loggedUnexpanded.insert(item.id + "|" + item.reason).inserted {
+            logger.warning("chore repeat rule not expanded", metadata: ["reason": "\(item.reason)"])
         }
     }
 
@@ -99,10 +124,16 @@ public actor ChoresFeed {
     /// Re-reads and reports whether the chores differ from the last rebuild. The first call sets the
     /// baseline. Only this updates the baseline, so a GET in between can't swallow a change.
     func rebuild() async -> Bool {
-        guard let current = try? await list().chores else { return false }
-        defer { lastNotified = current }
+        let now = now()
+        guard let current = try? await read({ people in
+            let upcoming = ChoreMapping.upcoming(byPerson: people, now: now, calendar: self.calendar)
+            return (Snapshot(today: ChoreMapping.list(byPerson: people, now: now, calendar: self.calendar), upcoming: upcoming.chores), upcoming.unexpanded)
+        }) else { return false }
+        logUnexpanded(current.1)
+        let snapshot = current.0
+        defer { lastNotified = snapshot }
         guard let previous = lastNotified else { return false }
-        return previous != current
+        return previous != snapshot
     }
 
     func startupCheck() async {

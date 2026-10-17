@@ -7,7 +7,8 @@ import ServiceLifecycle
 /// `EventKitShoppingSource.setCompleted` and `EventKitChoresSource.setDone` (isCompleted plus
 /// save(_:commit: true)). The one exception, owner-approved in #60: undoing a recurring chore
 /// restores the original's due date and removes the completed copy (`ChoreUndo`), in a chore list
-/// only. Nothing else calls remove or a bare commit().
+/// only. Nothing else calls remove or a bare commit(). Expanding upcoming chores only reads
+/// `EKRecurrenceRule`.
 // @unchecked: EKEventStore is documented as usable from any thread for reads, and `denied` is only
 // written once, before the observer starts.
 final class SharedEventStore: @unchecked Sendable {

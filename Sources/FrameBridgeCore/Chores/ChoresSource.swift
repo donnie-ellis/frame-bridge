@@ -84,7 +84,34 @@ struct EventKitChoresSource: ChoresProvider {
 
     private static func values(_ r: EKReminder) -> ChoreReminderValues {
         ChoreReminderValues(id: r.calendarItemIdentifier, listId: r.calendar.calendarIdentifier, title: r.title ?? "", notes: r.notes,
-                            isCompleted: r.isCompleted, completionDate: r.completionDate, due: r.dueDateComponents, isRecurring: r.hasRecurrenceRules)
+                            isCompleted: r.isCompleted, completionDate: r.completionDate, due: r.dueDateComponents, isRecurring: r.hasRecurrenceRules,
+                            recurrence: recurrence(r.recurrenceRules ?? []))
+    }
+
+    private static func recurrence(_ rules: [EKRecurrenceRule]) -> ChoreRecurrence? {
+        guard let rule = rules.first else { return nil }
+        let frequency: ChoreRecurrence.Frequency
+        switch rule.frequency {
+        case .daily: frequency = .daily
+        case .weekly: frequency = .weekly
+        case .monthly: frequency = .monthly
+        case .yearly: frequency = .yearly
+        @unknown default: return ChoreRecurrence(frequency: .daily, unsupported: "frequency")
+        }
+        var unsupported: String?
+        if rules.count > 1 { unsupported = "multiple rules" }
+        else if !(rule.setPositions ?? []).isEmpty { unsupported = "setPositions" }
+        else if !(rule.monthsOfTheYear ?? []).isEmpty { unsupported = "monthsOfTheYear" }
+        else if !(rule.weeksOfTheYear ?? []).isEmpty { unsupported = "weeksOfTheYear" }
+        else if !(rule.daysOfTheYear ?? []).isEmpty { unsupported = "daysOfTheYear" }
+        var end: ChoreRecurrence.End?
+        if let e = rule.recurrenceEnd {
+            if let date = e.endDate { end = .date(date) } else if e.occurrenceCount > 0 { end = .count(e.occurrenceCount) }
+        }
+        return ChoreRecurrence(frequency: frequency, interval: rule.interval,
+                               daysOfTheWeek: (rule.daysOfTheWeek ?? []).map { .init(weekday: $0.dayOfTheWeek.rawValue, weekNumber: $0.weekNumber) },
+                               daysOfTheMonth: (rule.daysOfTheMonth ?? []).map(\.intValue),
+                               firstDayOfTheWeek: rule.firstDayOfTheWeek, end: end, unsupported: unsupported)
     }
 
     private func fetch(_ predicate: NSPredicate) async throws -> [ChoreReminderValues] {
