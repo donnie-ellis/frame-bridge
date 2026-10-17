@@ -5,7 +5,7 @@ import Logging
 import ServiceLifecycle
 
 /// The `info.version` of `frame-bridge.openapi.yaml` this build implements.
-public let contractVersion = "0.12.0"
+public let contractVersion = "0.13.0"
 
 public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: CalendarFeed? = nil, shopping: ShoppingFeed? = nil, chores: ChoresFeed? = nil, photos: PhotosFeed? = nil, images: ImageCache? = nil, lights: LightsFeed? = nil, nowPlaying: NowPlayingFeed? = nil, events: EventHub = EventHub()) -> Router<FrameRequestContext> {
     let router = Router(context: FrameRequestContext.self)
@@ -55,6 +55,10 @@ public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: 
     router.get("api/chores") { _, _ -> ChoreList in
         guard let chores else { throw APIError.sourceUnavailable("not configured") }
         return try await chores.list()
+    }
+    router.get("api/chores/upcoming") { _, _ -> UpcomingChoreList in
+        guard let chores else { throw APIError.sourceUnavailable("not configured") }
+        return try await chores.upcoming()
     }
     router.patch("api/chores/:id") { request, context -> Chore in
         guard let chores else { throw APIError.sourceUnavailable("not configured") }

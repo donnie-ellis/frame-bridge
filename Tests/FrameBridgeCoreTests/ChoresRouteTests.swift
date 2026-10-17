@@ -32,6 +32,7 @@ private actor StubProvider: ChoresProvider {
         self.auth = auth
         self.error = error
     }
+    func replace(_ v: [ChoreReminderValues]) { values = v }
     func authorization() async -> FeedHealth.Authorization { auth }
     func reminders(listTitle: String, completedSince: Date, until: Date) async throws -> [ChoreReminderValues] {
         if let error { throw error }
@@ -228,4 +229,59 @@ private func patch(_ app: some ApplicationProtocol, _ id: String, _ body: String
     var rest: [String] = []
     while let m = await it.next() { rest.append(m) }
     #expect(rest.isEmpty)
+}
+
+// MARK: upcoming
+
+@Test func upcoming_requiresTokenAndIs503WhenDown() async throws {
+    let (status, _) = try await get(app(feed(StubProvider([]))), "/api/chores/upcoming", headers: [:])
+    #expect(status == .unauthorized)
+    let (down, body) = try await get(app(feed(StubProvider([], auth: .denied))), "/api/chores/upcoming")
+    #expect(down == .serviceUnavailable && body.contains("source_unavailable"))
+    let (none, nBody) = try await get(app(nil), "/api/chores/upcoming")
+    #expect(none == .serviceUnavailable && nBody.contains("not configured"))
+}
+
+@Test func upcoming_servesOccurrencesWithoutNullOrDone() async throws {
+    var daily = rem("d", "Dishes", list: "L1", due: due(12, 19), recurring: true)
+    daily.recurrence = ChoreRecurrence(frequency: .daily, interval: 3)
+    let p = StubProvider([daily, rem("t", list: "L2", due: due(13)), rem("today", list: "L1", due: due(12))])
+    let (status, body) = try await get(app(feed(p)), "/api/chores/upcoming")
+    #expect(status == .ok && !body.contains("null") && !body.contains("\"done\""))
+    let list = try JSONDecoder().decode(UpcomingChoreList.self, from: Data(body.utf8))
+    #expect(list.chores.map(\.id) == ["t/2026-10-13", "d/2026-10-15", "d/2026-10-18"])
+    #expect(list.chores.map(\.who) == ["maya", "alex", "alex"])
+    #expect(list.chores[1].due == "2026-10-15T19:00:00-04:00")
+}
+
+@Test func upcoming_idIsNotAChoreAndPatchIs404() async throws {
+    let p = StubProvider([rem("t", due: due(13))])
+    let a = app(feed(p))
+    for id in ["t%2F2026-10-13", "upcoming"] {
+        let (status, body) = try await patch(a, id, #"{"done":true}"#)
+        #expect(status == .notFound && body.contains("not_found"))
+    }
+    #expect(await p.saves == 0)
+}
+
+@Test func upcoming_changeOnALaterDayRebuildsTrue() async throws {
+    let p = StubProvider([rem("t", due: due(14))])
+    let f = feed(p)
+    _ = await f.rebuild()
+    #expect(await f.rebuild() == false)
+    await p.replace([rem("t", due: due(15))])
+    #expect(await f.rebuild() == true)
+}
+
+@Test func upcoming_warnsOncePerUnexpandedRuleWithoutTitles() async throws {
+    var r = rem("secret-id", "Secret title", due: due(14), recurring: true)
+    r.recurrence = ChoreRecurrence(frequency: .monthly, unsupported: "setPositions")
+    let (logger, box) = CapturingLogHandler.logger()
+    let f = ChoresFeed(config: config, provider: StubProvider([r]), logger: logger, calendar: cal, now: { now })
+    _ = try await f.upcoming()
+    _ = try await f.upcoming()
+    let warnings = box.entries.filter { $0.message.contains("not expanded") }
+    #expect(warnings.count == 1)
+    let text = box.entries.map { "\($0.message) \($0.metadata)" }.joined()
+    #expect(!text.contains("secret") && !text.contains("Secret") && text.contains("setPositions"))
 }
