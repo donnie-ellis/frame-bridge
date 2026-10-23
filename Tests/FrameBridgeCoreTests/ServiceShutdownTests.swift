@@ -41,6 +41,7 @@ func nowPlayingServiceStopsOnGracefulShutdown() async throws {
     let feed = NowPlayingFeed(
         config: SonosConfig(host: SonosFixture.hostA, room: "Room A"),
         client: SonosClient(transport: StubSonosTransport()),
+        externalArt: StubExternalArt(),
         logger: Logger(label: "test"))
     try await shutsDownCleanly(NowPlayingService(feed: feed))
 }

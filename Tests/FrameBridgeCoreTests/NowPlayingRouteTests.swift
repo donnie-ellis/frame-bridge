@@ -9,7 +9,7 @@ import Testing
 @testable import FrameBridgeCore
 
 private func polled(_ stub: StubSonosTransport = StubSonosTransport()) async -> NowPlayingFeed {
-    let f = NowPlayingFeed(config: SonosConfig(host: SonosFixture.hostA, room: "Room A"), client: SonosClient(transport: stub), logger: Logger(label: "test"))
+    let f = NowPlayingFeed(config: SonosConfig(host: SonosFixture.hostA, room: "Room A"), client: SonosClient(transport: stub), externalArt: StubExternalArt(), logger: Logger(label: "test"))
     _ = await f.poll()
     return f
 }

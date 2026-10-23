@@ -56,3 +56,17 @@ actor StubSonosTransport: SonosTransport {
         return (artStatus, artStatus == 200 ? try SonosFixture.data("art", ext: "jpg") : Data())
     }
 }
+
+/// Records the art URLs asked for and serves the fixture image, or fails.
+actor StubExternalArt: ExternalArtTransport {
+    private(set) var urls: [URL] = []
+    private var fail = false
+
+    func set(fail: Bool) { self.fail = fail }
+
+    func get(_ url: URL) async throws -> Data {
+        urls.append(url)
+        if fail { throw ExternalArtError.unreachable }
+        return try SonosFixture.data("art", ext: "jpg")
+    }
+}

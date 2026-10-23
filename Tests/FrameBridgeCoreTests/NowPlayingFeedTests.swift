@@ -7,7 +7,7 @@ import Testing
 private let config = SonosConfig(host: SonosFixture.hostA, room: "Room A")
 
 private func feed(_ stub: StubSonosTransport, events: EventHub? = nil) -> NowPlayingFeed {
-    NowPlayingFeed(config: config, client: SonosClient(transport: stub), events: events, logger: Logger(label: "test"))
+    NowPlayingFeed(config: config, client: SonosClient(transport: stub), externalArt: StubExternalArt(), events: events, logger: Logger(label: "test"))
 }
 
 @Test func firstPollSetsValueAndSendsOneEvent() async throws {
@@ -118,7 +118,7 @@ private func feed(_ stub: StubSonosTransport, events: EventHub? = nil) -> NowPla
 }
 
 @Test func unknownRoomIsReported() async {
-    let f = NowPlayingFeed(config: SonosConfig(host: SonosFixture.hostA, room: "Room Z"), client: SonosClient(transport: StubSonosTransport()), logger: Logger(label: "test"))
+    let f = NowPlayingFeed(config: SonosConfig(host: SonosFixture.hostA, room: "Room Z"), client: SonosClient(transport: StubSonosTransport()), externalArt: StubExternalArt(), logger: Logger(label: "test"))
     _ = await f.poll()
     let h = await f.health()
     #expect(h.detail == "room not found in Sonos topology")
