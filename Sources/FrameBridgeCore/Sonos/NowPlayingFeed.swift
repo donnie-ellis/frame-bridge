@@ -10,27 +10,29 @@ public actor NowPlayingFeed {
 
     private let config: SonosConfig
     private let client: SonosClient
+    private let externalArt: any ExternalArtTransport
     private let events: EventHub?
     private let timeZone: TimeZone
     private let logger: Logger
     private var value: NowPlaying?
-    private var art: (path: String, full: Data, half: Data)?
-    // The /getaa path last tried, so a failed fetch isn't retried every poll for the same track.
-    private var artAttempted: String?
+    private var art: (full: Data, half: Data)?
+    // The art source last tried, so a failed fetch isn't retried every poll for the same track.
+    private var artAttempted: ArtSource?
     private var coordinator: String?
     private var lastSuccess: Date?
     private var lastError: String?
 
-    init(config: SonosConfig, client: SonosClient, events: EventHub? = nil, timeZone: TimeZone = .current, logger: Logger = Logger(label: "frame-bridge.sonos")) {
+    init(config: SonosConfig, client: SonosClient, externalArt: any ExternalArtTransport, events: EventHub? = nil, timeZone: TimeZone = .current, logger: Logger = Logger(label: "frame-bridge.sonos")) {
         self.config = config
         self.client = client
+        self.externalArt = externalArt
         self.events = events
         self.timeZone = timeZone
         self.logger = logger
     }
 
     public init(config: SonosConfig, events: EventHub? = nil, logger: Logger) {
-        self.init(config: config, client: SonosClient(transport: URLSessionSonosTransport()), events: events, logger: logger)
+        self.init(config: config, client: SonosClient(transport: URLSessionSonosTransport()), externalArt: URLSessionExternalArtTransport(), events: events, logger: logger)
     }
 
     /// Reads the room once and returns how long to wait: 5 s while playing, else 15 s.
@@ -47,11 +49,11 @@ public actor NowPlayingFeed {
             let state = SonosMapping.state(transport, previous: value?.state)
             var mapped = SonosMapping.nowPlaying(room: config.room, state: state, trackURI: position.trackURI, didl: position.didl)
             // Fetch the art before the event goes out, so `art: true` never precedes the image.
-            if let path = mapped.artPath {
-                if path != artAttempted {
-                    artAttempted = path
+            if let source = mapped.artSource {
+                if source != artAttempted {
+                    artAttempted = source
                     art = nil
-                    art = await fetchArt(host: host, path: path)
+                    art = await fetchArt(host: host, source: source)
                 }
             } else {
                 art = nil
@@ -90,13 +92,23 @@ public actor NowPlayingFeed {
     }
 
     /// Once per track change. A failure is not an outage: the track just has no art.
-    private func fetchArt(host: String, path: String) async -> (path: String, full: Data, half: Data)? {
-        if let fetched = try? await client.art(host: host, path: path), (200..<300).contains(fetched.status),
-           let source = CGImageSourceCreateWithData(fetched.data as CFData, nil),
+    private func fetchArt(host: String, source: ArtSource) async -> (full: Data, half: Data)? {
+        let data: Data?
+        switch source {
+        case .speaker(let path):
+            if let fetched = try? await client.art(host: host, path: path), (200..<300).contains(fetched.status) {
+                data = fetched.data
+            } else {
+                data = nil
+            }
+        case .external(let url):
+            data = try? await externalArt.get(url)
+        }
+        if let data, let source = CGImageSourceCreateWithData(data as CFData, nil),
            let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
            let full = try? ImageSizing.jpeg(from: image, maxEdge: ImageSize.full.maxEdge),
            let half = try? ImageSizing.jpeg(from: image, maxEdge: ImageSize.half.maxEdge) {
-            return (path, full, half)
+            return (full, half)
         }
         logger.debug("sonos art unavailable")
         return nil

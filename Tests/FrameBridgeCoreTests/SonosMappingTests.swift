@@ -3,7 +3,7 @@ import Testing
 
 @testable import FrameBridgeCore
 
-private func nowPlaying(_ position: String, state: NowPlaying.State = .playing) throws -> (value: NowPlaying, artPath: String?) {
+private func nowPlaying(_ position: String, state: NowPlaying.State = .playing) throws -> (value: NowPlaying, artSource: ArtSource?) {
     let p = try SonosMapping.position(response: SonosFixture.data(position))
     return SonosMapping.nowPlaying(room: "Room A", state: state, trackURI: p.trackURI, didl: p.didl)
 }
@@ -46,13 +46,13 @@ private func nowPlaying(_ position: String, state: NowPlaying.State = .playing) 
 @Test func musicTrackMapsEveryField() throws {
     let result = try nowPlaying("position-music")
     #expect(result.value == NowPlaying(room: "Room A", state: .playing, title: "Example Song", artist: "Example Artist", album: "Example Album", art: true, source: .music))
-    #expect(result.artPath == "/getaa?s=1&u=x-sonos-spotify%3aexample")
+    #expect(result.artSource == .speaker(path: "/getaa?s=1&u=x-sonos-spotify%3aexample"))
 }
 
 @Test func externalArtMeansNoArt() throws {
     let result = try nowPlaying("position-radio")
     #expect(result.value.art == false)
-    #expect(result.artPath == nil)
+    #expect(result.artSource == nil)
     #expect(result.value.album == nil)
     #expect(result.value.source == .music)
 }
@@ -70,7 +70,7 @@ private func nowPlaying(_ position: String, state: NowPlaying.State = .playing) 
 }
 
 @Test func encodedValueHasNoNullsAndOmitsUnknowns() throws {
-    for name in ["position-music", "position-radio", "position-tv", "position-linein", "position-empty"] {
+    for name in ["position-music", "position-radio", "position-radio-stream", "position-radio-talk", "position-tv", "position-linein", "position-empty"] {
         let text = String(decoding: try JSONEncoder().encode(nowPlaying(name).value), as: UTF8.self)
         #expect(!text.contains("null"))
     }
@@ -82,4 +82,32 @@ private func nowPlaying(_ position: String, state: NowPlaying.State = .playing) 
 @Test func noMetadataIsHandled() {
     let value = SonosMapping.nowPlaying(room: "Room A", state: .playing, trackURI: "x-file-cifs:example", didl: "NOT_IMPLEMENTED").value
     #expect(value == NowPlaying(room: "Room A", state: .playing, source: .music))
+}
+
+@Test func radioStreamContentGivesTrackFieldsAndExternalArt() throws {
+    let result = try nowPlaying("position-radio-stream")
+    #expect(result.value == NowPlaying(room: "Room A", state: .playing, title: "Radio Song", artist: "Radio Artist", album: "Radio Album", art: true, source: .music))
+    #expect(result.artSource == .external(URL(string: "https://is1-ssl.mzstatic.com/image/thumb/example/1400x1400bb.jpg")!))
+}
+
+@Test func radioTalkWithoutTitleHasNoTrackFields() throws {
+    let result = try nowPlaying("position-radio-talk")
+    #expect(result.value.title == nil && result.value.artist == nil && result.value.album == nil)
+    #expect(result.value.source == .music)
+}
+
+@Test func dcTitleWinsOverStreamContent() {
+    let didl = "<DIDL-Lite xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:r=\"urn:r\"><item><dc:title>Real Title</dc:title><r:streamContent>TITLE Other</r:streamContent></item></DIDL-Lite>"
+    let value = SonosMapping.nowPlaying(room: "Room A", state: .playing, trackURI: "x-sonosapi-stream:s1", didl: didl).value
+    #expect(value.title == "Real Title")
+}
+
+@Test func allowedArtURLs() {
+    for ok in ["https://is1-ssl.mzstatic.com/a.jpg", "https://mzstatic.com/a.jpg"] {
+        #expect(ExternalArt.allowedURL(ok) != nil)
+    }
+    for bad in ["http://is1-ssl.mzstatic.com/a.jpg", "https://mzstatic.com.evil.invalid/a.jpg", "https://evilmzstatic.com/a.jpg",
+                "https://mzstatic.com@evil.invalid/a.jpg", "https://example.com/a.jpg", "https://is1-ssl.mzstatic.com:8443/a.jpg", "/getaa?s=1"] {
+        #expect(ExternalArt.allowedURL(bad) == nil)
+    }
 }

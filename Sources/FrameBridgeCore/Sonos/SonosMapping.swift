@@ -46,9 +46,14 @@ enum SimpleXML {
 /// | --- | --- |
 /// | `room` | the room name from config |
 /// | `state` | GetTransportInfo `CurrentTransportState`: PLAYING, PAUSED_PLAYBACK, STOPPED / NO_MEDIA_PRESENT |
-/// | `title` / `artist` / `album` | GetPositionInfo `TrackMetaData` DIDL: `dc:title`, `dc:creator`, `upnp:album` |
-/// | `art` | `upnp:albumArtURI`: true for the speaker's own `/getaa`, false for any other URL, omitted if none |
+/// | `title` / `artist` / `album` | GetPositionInfo `TrackMetaData` DIDL: `dc:title`, `dc:creator`, `upnp:album`. Radio with an empty `dc:title` uses `r:streamContent` (`TITLE `, `ARTIST `, `ALBUM ` segments split on `|`) |
+/// | `art` | `upnp:albumArtURI`: true for the speaker's own `/getaa` or an https `mzstatic.com` URL, false for any other URL, omitted if none |
 /// | `source` | `TrackURI`: `x-sonos-htastream:` is tv, `x-rincon-stream:` is lineIn, empty is omitted, else music |
+enum ArtSource: Equatable, Sendable {
+    case speaker(path: String)
+    case external(URL)
+}
+
 enum SonosMapping {
     /// The IP of the group coordinator for the member named `room`. The room may be grouped.
     static func coordinatorHost(topologyResponse: Data, room: String) throws -> String {
@@ -92,7 +97,22 @@ enum SonosMapping {
         return (nodes.first { $0.name == "TrackURI" }?.text ?? "", nodes.first { $0.name == "TrackMetaData" }?.text ?? "")
     }
 
-    static func nowPlaying(room: String, state: NowPlaying.State, trackURI: String, didl: String) -> (value: NowPlaying, artPath: String?) {
+    /// `r:streamContent` of radio: `TYPE=SNG|TITLE x|ARTIST y|ALBUM z`. Other segments are ignored.
+    static func streamFields(_ content: String) -> (title: String?, artist: String?, album: String?) {
+        var fields: [String: String] = [:]
+        for segment in content.split(separator: "|") {
+            let trimmed = segment.trimmingCharacters(in: .whitespacesAndNewlines)
+            for key in ["TITLE", "ARTIST", "ALBUM"] where trimmed.hasPrefix(key + " ") {
+                let value = trimmed.dropFirst(key.count).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty { fields[key] = value }
+            }
+        }
+        // Without a title it's talk or an ad: show no track fields.
+        guard fields["TITLE"] != nil else { return (nil, nil, nil) }
+        return (fields["TITLE"], fields["ARTIST"], fields["ALBUM"])
+    }
+
+    static func nowPlaying(room: String, state: NowPlaying.State, trackURI: String, didl: String) -> (value: NowPlaying, artSource: ArtSource?) {
         var value = NowPlaying(room: room, state: state)
         if trackURI.hasPrefix("x-sonos-htastream:") {
             value.source = .tv
@@ -103,20 +123,31 @@ enum SonosMapping {
             return (value, nil)
         }
         if !trackURI.isEmpty { value.source = .music }
-        var artPath: String?
+        var artSource: ArtSource?
         if !didl.isEmpty, didl != "NOT_IMPLEMENTED", let nodes = try? SimpleXML.parse(Data(didl.utf8)) {
             func text(_ name: String) -> String? {
                 let trimmed = nodes.first { $0.name == name }?.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 return trimmed?.isEmpty == false ? trimmed : nil
             }
-            value.title = text("dc:title")
-            value.artist = text("dc:creator")
-            value.album = text("upnp:album")
+            if let title = text("dc:title") {
+                value.title = title
+                value.artist = text("dc:creator")
+                value.album = text("upnp:album")
+            } else if let content = text("r:streamContent") {
+                (value.title, value.artist, value.album) = streamFields(content)
+            } else {
+                value.artist = text("dc:creator")
+                value.album = text("upnp:album")
+            }
             if let art = text("upnp:albumArtURI") {
-                value.art = art.hasPrefix(SonosClient.artPrefix)
-                if value.art == true { artPath = art }
+                if art.hasPrefix(SonosClient.artPrefix) {
+                    artSource = .speaker(path: art)
+                } else if let url = ExternalArt.allowedURL(art) {
+                    artSource = .external(url)
+                }
+                value.art = artSource != nil
             }
         }
-        return (value, artPath)
+        return (value, artSource)
     }
 }

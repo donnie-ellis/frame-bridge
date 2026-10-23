@@ -13,7 +13,7 @@ import Testing
             let body = String(buffer: response.body)
             #expect(!body.contains("null"))
             let health = try JSONDecoder().decode(Health.self, from: Data(body.utf8))
-            #expect(health.version == "0.13.0")
+            #expect(health.version == "0.14.0")
             #expect(health.version == contractVersion)
             for key in ["calendar", "shopping", "chores", "lights", "weather", "photos"] {
                 #expect(body.contains("\"\(key)\""))
@@ -50,7 +50,7 @@ import Testing
 }
 
 @Test func configuredSonosIsReportedInHealthz() async throws {
-    let feed = NowPlayingFeed(config: SonosConfig(host: SonosFixture.hostA, room: "Room A"), client: SonosClient(transport: StubSonosTransport()), logger: .init(label: "test"))
+    let feed = NowPlayingFeed(config: SonosConfig(host: SonosFixture.hostA, room: "Room A"), client: SonosClient(transport: StubSonosTransport()), externalArt: StubExternalArt(), logger: .init(label: "test"))
     let app = Application(router: buildRouter(config: TestAuth.config, nowPlaying: feed))
     try await app.test(.router) { client in
         try await client.execute(uri: "/healthz", method: .get, headers: TestAuth.headers) { response in

@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import Hummingbird
 import HummingbirdTesting
 import Logging
@@ -6,8 +7,8 @@ import Testing
 
 @testable import FrameBridgeCore
 
-private func makeFeed(_ stub: StubSonosTransport, events: EventHub? = nil) -> NowPlayingFeed {
-    NowPlayingFeed(config: SonosConfig(host: SonosFixture.hostA, room: "Room A"), client: SonosClient(transport: stub), events: events, logger: Logger(label: "test"))
+private func makeFeed(_ stub: StubSonosTransport, external: StubExternalArt = StubExternalArt(), events: EventHub? = nil) -> NowPlayingFeed {
+    NowPlayingFeed(config: SonosConfig(host: SonosFixture.hostA, room: "Room A"), client: SonosClient(transport: stub), externalArt: external, events: events, logger: Logger(label: "test"))
 }
 
 private func artStatus(_ feed: NowPlayingFeed, _ uri: String = "/api/nowplaying/art") async throws -> HTTPResponse.Status {
@@ -104,4 +105,49 @@ private func artStatus(_ feed: NowPlayingFeed, _ uri: String = "/api/nowplaying/
     #expect(message.contains("\"art\":true"))
     #expect(try await artStatus(f) == .ok)
     await hub.remove(sub.id)
+}
+
+@Test func radioArtIsFetchedOnceFromTheAllowedHostNeverTheSpeaker() async throws {
+    let stub = StubSonosTransport(position: "position-radio-stream")
+    let external = StubExternalArt()
+    let f = makeFeed(stub, external: external)
+    for _ in 0..<6 { _ = await f.poll() }
+    #expect(await external.urls.count == 1)
+    #expect(await stub.gets.isEmpty)
+    #expect(try await f.current().art == true)
+    let half = try await f.artJPEG(size: .half)
+    let image = try #require(CGImageSourceCreateWithData(half as CFData, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) })
+    #expect(max(image.width, image.height) <= 640)
+    #expect(try await artStatus(f) == .ok)
+}
+
+@Test func failedExternalFetchMeansArtFalseAnd404WithoutRetry() async throws {
+    let stub = StubSonosTransport(position: "position-radio-stream")
+    let external = StubExternalArt()
+    await external.set(fail: true)
+    let f = makeFeed(stub, external: external)
+    _ = await f.poll()
+    _ = await f.poll()
+    #expect(try await f.current().art == false)
+    #expect(try await artStatus(f) == .notFound)
+    #expect(await external.urls.count == 1)
+}
+
+@Test func changedExternalArtFetchesAgain() async throws {
+    let stub = StubSonosTransport(position: "position-radio-stream")
+    let external = StubExternalArt()
+    let f = makeFeed(stub, external: external)
+    _ = await f.poll()
+    await stub.set(position: "position-radio-stream-next")
+    _ = await f.poll()
+    #expect(await external.urls.count == 2)
+}
+
+@Test func nonAllowedExternalArtFetchesNothing() async throws {
+    let stub = StubSonosTransport(position: "position-radio")
+    let external = StubExternalArt()
+    let f = makeFeed(stub, external: external)
+    _ = await f.poll()
+    #expect(await external.urls.isEmpty)
+    #expect(await stub.gets.isEmpty)
 }
