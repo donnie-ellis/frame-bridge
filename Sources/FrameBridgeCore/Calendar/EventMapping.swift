@@ -11,6 +11,8 @@ struct EventValues: Sendable, Equatable {
     var location: String?
     var notes: String?
     var calendarTitle: String
+    /// True when this copy's calendar account is the event's organizer.
+    var isOrganizerCopy: Bool = false
 }
 
 enum EventMapping {
@@ -43,20 +45,43 @@ enum EventMapping {
     }
 
     /// Events overlapping [from, to), sorted by start, then end, then id.
+    /// Copies of one occurrence (same id, on calendars of different people) are merged:
+    /// fields from the organizer's copy, else the copy that sorts first; people combined in config order.
     static func eventsInRange(_ values: [EventValues], config: CalendarConfig, from: Date, to: Date, timeZone: TimeZone) -> [Event] {
-        var kept: [(start: Date, end: Date, event: Event)] = []
+        struct Copy {
+            var start: Date
+            var end: Date
+            var event: Event
+            var organizer: Bool
+            var calendarTitle: String
+        }
+        func before(_ a: Copy, _ b: Copy) -> Bool {
+            if a.start != b.start { return a.start < b.start }
+            if a.end != b.end { return a.end < b.end }
+            if a.event.id != b.event.id { return a.event.id < b.event.id }
+            return a.calendarTitle < b.calendarTitle
+        }
+        var groups: [String: [Copy]] = [:]
         for v in values {
             let (start, end) = bounds(v, timeZone: timeZone)
             guard start < to, end > from || start == from else { continue }
             guard let event = map(v, config: config, timeZone: timeZone) else { continue }
-            kept.append((start, end, event))
+            groups[event.id, default: []].append(Copy(start: start, end: end, event: event, organizer: v.isOrganizerCopy, calendarTitle: v.calendarTitle))
         }
-        kept.sort { a, b in
+        var merged: [Copy] = []
+        for copies in groups.values {
+            let organizers = copies.filter(\.organizer)
+            guard var base = organizers.count == 1 ? organizers[0] : copies.min(by: before) else { continue }
+            let all = Set(copies.flatMap(\.event.people))
+            base.event.people = config.people.filter(all.contains)
+            merged.append(base)
+        }
+        merged.sort { a, b in
             if a.start != b.start { return a.start < b.start }
             if a.end != b.end { return a.end < b.end }
             return a.event.id < b.event.id
         }
-        return kept.map(\.event)
+        return merged.map(\.event)
     }
 
     private static func nonEmpty(_ text: String?) -> String? {
