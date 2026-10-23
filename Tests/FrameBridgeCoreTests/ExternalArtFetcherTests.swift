@@ -15,7 +15,9 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-    override func stopLoading() {}
+    private let stopped = NSLock()
+    nonisolated(unsafe) private var isStopped = false
+    override func stopLoading() { stopped.withLock { isStopped = true } }
 
     override func startLoading() {
         let h = Self.state.withLock { () -> Handler? in Self.seen.append(request.url!); return Self.handler }
@@ -24,6 +26,13 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         let response = HTTPURLResponse(url: request.url!, statusCode: r.status, httpVersion: "HTTP/1.1", headerFields: r.headers)!
         if (300..<400).contains(r.status), let location = r.headers["Location"], let to = URL(string: location) {
             client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: to), redirectResponse: response)
+            // Accepted redirect: the session stops this protocol and starts a new one. Refused
+            // (delegate returned nil): it keeps waiting, so deliver the 3xx as the final response.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) { [self] in
+                guard !stopped.withLock({ isStopped }) else { return }
+                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocolDidFinishLoading(self)
+            }
             return
         }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
