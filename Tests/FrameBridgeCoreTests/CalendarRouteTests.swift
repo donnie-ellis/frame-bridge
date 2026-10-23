@@ -18,11 +18,11 @@ private struct StubProvider: CalendarProvider {
 }
 
 private let ny = TimeZone(identifier: "America/New_York")!
-private let config = CalendarConfig(people: ["a", "b"], calendars: ["Family": .all])
+private let config = CalendarConfig(people: ["a", "b"], calendars: ["Family": .all, "A": .ids(["a"]), "B": .ids(["b"])])
 private func date(_ s: String) -> Date { try! Date.ISO8601FormatStyle().parse(s) }
 
-private func ev(_ id: String, _ start: String, _ end: String, allDay: Bool = false, loc: String? = nil) -> EventValues {
-    EventValues(eventIdentifier: id, occurrenceDate: date(start), title: "T", start: date(start), end: date(end), isAllDay: allDay, location: loc, notes: nil, calendarTitle: "Family")
+private func ev(_ id: String, _ start: String, _ end: String, allDay: Bool = false, loc: String? = nil, calendar: String = "Family") -> EventValues {
+    EventValues(eventIdentifier: id, occurrenceDate: date(start), title: "T", start: date(start), end: date(end), isAllDay: allDay, location: loc, notes: nil, calendarTitle: calendar)
 }
 
 private func feed(_ p: StubProvider) -> CalendarFeed {
@@ -100,4 +100,16 @@ private func app(_ p: StubProvider) -> some ApplicationProtocol {
     let (_, noneBody) = try await get(Application(router: buildRouter(config: TestAuth.config)), "/healthz")
     let n = try JSONDecoder().decode(Health.self, from: Data(noneBody.utf8)).feeds.calendar
     #expect(n.detail == "not configured" && n.authorization == nil)
+}
+
+@Test func calendarMergesSameOccurrenceFromTwoCalendars() async throws {
+    let p = StubProvider(values: [
+        ev("same", "2026-10-12T20:00:00Z", "2026-10-12T21:00:00Z", calendar: "B"),
+        ev("same", "2026-10-12T20:00:00Z", "2026-10-12T21:00:00Z", calendar: "A"),
+    ])
+    let (status, body) = try await get(app(p), range)
+    #expect(status == .ok && !body.contains("null"))
+    let events = try JSONDecoder().decode([Event].self, from: Data(body.utf8))
+    #expect(events.count == 1 && events[0].people == ["a", "b"])
+    #expect(Set(events.map(\.id)).count == events.count)
 }

@@ -33,7 +33,8 @@ struct EventKitCalendarSource: CalendarProvider {
                 isAllDay: e.isAllDay,
                 location: e.location,
                 notes: e.notes,
-                calendarTitle: e.calendar.title
+                calendarTitle: e.calendar.title,
+                isOrganizerCopy: e.organizer?.isCurrentUser == true
             )
         }
     }
