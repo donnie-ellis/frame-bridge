@@ -28,10 +28,12 @@ private func feed(_ stub: StubSonosTransport, events: EventHub? = nil) -> NowPla
     let (_, stream) = await hub.subscribe()
     let f = feed(StubSonosTransport(), events: hub)
     _ = await f.poll()
+    await f.artSettled()
     _ = await f.poll()
+    await f.artSettled()
     await hub.finishAll()
     let messages = await Array(stream)
-    #expect(messages.count == 1)
+    #expect(messages.count == 2)
 }
 
 @Test func transitioningKeepsTheValueAndSendsNothing() async throws {
@@ -40,10 +42,12 @@ private func feed(_ stub: StubSonosTransport, events: EventHub? = nil) -> NowPla
     let stub = StubSonosTransport()
     let f = feed(stub, events: hub)
     _ = await f.poll()
+    await f.artSettled()
     await stub.set(transport: "transport-transitioning", position: "position-empty")
     _ = await f.poll()
+    await f.artSettled()
     await hub.finishAll()
-    #expect(await Array(stream).count == 1)
+    #expect(await Array(stream).count == 2)
     #expect(try await f.current().title == "Example Song")
 }
 
@@ -61,6 +65,7 @@ private func feed(_ stub: StubSonosTransport, events: EventHub? = nil) -> NowPla
     let stub = StubSonosTransport()
     let f = feed(stub, events: hub)
     _ = await f.poll()
+    await f.artSettled()
     await stub.set(unreachable: true)
     #expect(await f.poll() == .seconds(15))
     await #expect(throws: APIError.self) { try await f.current() }
@@ -69,11 +74,13 @@ private func feed(_ stub: StubSonosTransport, events: EventHub? = nil) -> NowPla
     #expect(bad.detail == "speaker not reachable")
     await stub.set(position: "position-music-next", unreachable: false)
     _ = await f.poll()
+    await f.artSettled()
     #expect(await f.health().status == .ok)
     await hub.finishAll()
     let messages = await Array(stream)
-    #expect(messages.count == 2)
-    #expect(messages[1].contains(#""title":"Example Song 2""#))
+    #expect(messages.count == 4)
+    #expect(messages[2].contains(#""title":"Example Song 2""#))
+    #expect(messages[3].contains(#""title":"Example Song 2""#))
 }
 
 @Test func trackChangeSendsASecondEvent() async throws {
@@ -82,14 +89,16 @@ private func feed(_ stub: StubSonosTransport, events: EventHub? = nil) -> NowPla
     let stub = StubSonosTransport()
     let f = feed(stub, events: hub)
     _ = await f.poll()
+    await f.artSettled()
     await stub.set(position: "position-music-next")
     _ = await f.poll()
+    await f.artSettled()
     await hub.finishAll()
     let messages = await Array(stream)
-    #expect(messages.count == 2)
+    #expect(messages.count == 4)
     #expect(messages.allSatisfy { $0.hasPrefix("event: nowplaying\ndata: {") })
-    #expect(messages[1].contains(#""title":"Example Song 2""#))
-    #expect(messages[1].contains(#""state":"playing""#))
+    #expect(messages[2].contains(#""title":"Example Song 2""#))
+    #expect(messages[2].contains(#""state":"playing""#))
     #expect(try await f.current().title == "Example Song 2")
 }
 
@@ -99,14 +108,16 @@ private func feed(_ stub: StubSonosTransport, events: EventHub? = nil) -> NowPla
     let stub = StubSonosTransport()
     let f = feed(stub, events: hub)
     _ = await f.poll()
+    await f.artSettled()
     await stub.set(transport: "transport-paused")
     #expect(await f.poll() == .seconds(15))
     _ = await f.poll()
+    await f.artSettled()
     await hub.finishAll()
     let messages = await Array(stream)
-    #expect(messages.count == 2)
-    #expect(messages[1].contains(#""state":"paused""#))
-    #expect(messages[1].contains(#""title":"Example Song""#))
+    #expect(messages.count == 3)
+    #expect(messages[2].contains(#""state":"paused""#))
+    #expect(messages[2].contains(#""title":"Example Song""#))
     #expect(try await f.current().state == .paused)
 }
 
@@ -129,6 +140,7 @@ private func feed(_ stub: StubSonosTransport, events: EventHub? = nil) -> NowPla
     let stub = StubSonosTransport(topology: "topology-grouped")
     let f = feed(stub)
     _ = await f.poll()
+    await f.artSettled()
     _ = try await f.artJPEG(size: .full)
     let actions = Set(await stub.actions)
     #expect(actions.isSubset(of: ["GetZoneGroupState", "GetTransportInfo", "GetPositionInfo"]))
