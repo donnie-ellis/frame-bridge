@@ -61,11 +61,27 @@ actor StubSonosTransport: SonosTransport {
 actor StubExternalArt: ExternalArtTransport {
     private(set) var urls: [URL] = []
     private var fail = false
+    private var holding = false
+    private var released = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
 
     func set(fail: Bool) { self.fail = fail }
 
+    /// While holding, `get` records the URL and then waits for `release()`.
+    func set(hold: Bool) { holding = hold }
+
+    func release() {
+        released = true
+        let pending = waiters
+        waiters = []
+        for waiter in pending { waiter.resume() }
+    }
+
     func get(_ url: URL) async throws -> Data {
         urls.append(url)
+        if holding, !released {
+            await withCheckedContinuation { waiters.append($0) }
+        }
         if fail { throw ExternalArtError.unreachable }
         return try SonosFixture.data("art", ext: "jpg")
     }

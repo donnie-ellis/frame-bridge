@@ -18,6 +18,7 @@ public actor NowPlayingFeed {
     private var art: (full: Data, half: Data)?
     // The art source last tried, so a failed fetch isn't retried every poll for the same track.
     private var artAttempted: ArtSource?
+    private var artTask: Task<Void, Never>?
     private var coordinator: String?
     private var lastSuccess: Date?
     private var lastError: String?
@@ -48,14 +49,25 @@ public actor NowPlayingFeed {
             if transport == "TRANSITIONING", value != nil { return interval }
             let state = SonosMapping.state(transport, previous: value?.state)
             var mapped = SonosMapping.nowPlaying(room: config.room, state: state, trackURI: position.trackURI, didl: position.didl)
-            // Fetch the art before the event goes out, so `art: true` never precedes the image.
+            // `art: true` goes out only once the image is in memory. The track goes out first with
+            // `art: false`, and a second event follows when the background fetch succeeds.
             if let source = mapped.artSource {
                 if source != artAttempted {
                     artAttempted = source
                     art = nil
-                    art = await fetchArt(host: host, source: source)
+                    let stale = artTask
+                    stale?.cancel()
+                    // Awaits the cancelled fetch, so a stale one has finished before this one reports.
+                    artTask = Task {
+                        let result = await fetchArt(host: host, source: source)
+                        await stale?.value
+                        guard !Task.isCancelled else { return }
+                        await artArrived(source, result)
+                    }
                 }
             } else {
+                artTask?.cancel()
+                artTask = nil
                 art = nil
                 artAttempted = nil
             }
@@ -68,12 +80,26 @@ public actor NowPlayingFeed {
             if detail != lastError { logger.warning("sonos poll failed", metadata: ["reason": .string(detail)]) }
             lastError = detail
             value = nil
+            artTask?.cancel()
+            artTask = nil
             art = nil
             artAttempted = nil
             coordinator = nil
         }
         return interval
     }
+
+    private func artArrived(_ source: ArtSource, _ result: (full: Data, half: Data)?) async {
+        guard artAttempted == source, value != nil else { return }
+        art = result
+        if result != nil, value?.art == false {
+            value?.art = true
+            if let value { await events?.nowPlayingChanged(value) }
+        }
+    }
+
+    /// Test hook: waits for the latest art fetch to finish.
+    func artSettled() async { await artTask?.value }
 
     private var interval: Duration { value?.state == .playing ? .seconds(5) : .seconds(15) }
 
