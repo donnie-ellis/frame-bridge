@@ -29,7 +29,8 @@ private let ny = TimeZone(identifier: "America/New_York")!
         (.room(Room(id: "r", name: "n", kind: .room, on: true, level: 5, lights: ["a"])), "room"),
         (.scene(Scene(id: "s", room: "r", name: "n", active: false)), "scene"),
         (.lights(n), "lights"),
-        (.nowplaying(NowPlaying(room: "Kitchen", state: .playing, source: .tv)), "nowplaying")]
+        (.nowplaying(NowPlaying(room: "Kitchen", state: .playing, source: .tv)), "nowplaying"),
+        (.summary(n), "summary")]
     for (event, name) in events {
         let text = try event.encoded()
         #expect(text.hasPrefix("event: \(name)\ndata: "))
@@ -54,4 +55,10 @@ private let ny = TimeZone(identifier: "America/New_York")!
     #expect(text.contains(#""source":"music""#))
     let tv = try ServerEvent.nowplaying(NowPlaying(room: "Kitchen", state: .playing, source: .tv)).encoded()
     #expect(tv.contains(#""source":"tv""#) && !tv.contains("title") && !tv.contains("art"))
+}
+
+@Test func summaryNoticeMatchesSpec() throws {
+    let date = Date(timeIntervalSince1970: 1791839051) // 2026-10-12T21:04:11Z
+    let notice = ChangeNotice(changedAt: WireDate.string(from: date, timeZone: ny))
+    #expect(try ServerEvent.summary(notice).encoded() == "event: summary\ndata: {\"changedAt\":\"2026-10-12T17:04:11-04:00\"}\n\n")
 }

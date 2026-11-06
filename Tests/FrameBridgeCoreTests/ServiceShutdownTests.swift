@@ -45,3 +45,30 @@ func nowPlayingServiceStopsOnGracefulShutdown() async throws {
         logger: Logger(label: "test"))
     try await shutsDownCleanly(NowPlayingService(feed: feed))
 }
+
+private struct NoCredentials: WorkersAICredentialStore {
+    func load() throws -> WorkersAICredentials? { nil }
+}
+
+private struct FixedCredentials: WorkersAICredentialStore {
+    func load() throws -> WorkersAICredentials? { WorkersAICredentials(accountId: String(repeating: "a", count: 32), token: "t") }
+}
+
+private struct NeverCalledTransport: WorkersAITransport {
+    func post(_ request: URLRequest) async throws -> (status: Int, data: Data) { throw URLError(.cannotConnectToHost) }
+}
+
+@Test(.timeLimit(.minutes(1)))
+func summaryServiceWithoutCredentialsKeepsRunningAndStopsOnGracefulShutdown() async throws {
+    let feed = SummaryFeed(calendar: nil, chores: nil, people: [])
+    let service = SummaryService(feed: feed, store: NoCredentials(), events: EventHub(), model: "@cf/example/model", transport: NeverCalledTransport())
+    try await shutsDownCleanly(service)
+    #expect(await feed.health().detail == "not configured")
+}
+
+@Test(.timeLimit(.minutes(1)))
+func summaryServiceWithCredentialsStopsOnGracefulShutdown() async throws {
+    let feed = SummaryFeed(calendar: nil, chores: nil, people: [])
+    let service = SummaryService(feed: feed, store: FixedCredentials(), events: EventHub(), model: "@cf/example/model", transport: NeverCalledTransport())
+    try await shutsDownCleanly(service)
+}

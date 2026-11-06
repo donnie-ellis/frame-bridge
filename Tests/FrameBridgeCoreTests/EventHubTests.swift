@@ -57,3 +57,19 @@ private func waitForCount(_ hub: EventHub, _ n: Int) async -> Bool {
     #expect(await it.next() == nil)
     #expect(await hub.subscriberCount == 0)
 }
+
+@Test func changeListenersRunAfterCalendarAndChoresNoticesOnly() async {
+    let hub = EventHub()
+    let (calls, continuation) = AsyncStream<Void>.makeStream()
+    await hub.addChangeListener { continuation.yield() }
+    var it = calls.makeAsyncIterator()
+    await hub.calendarChanged()
+    await it.next()
+    await hub.choresChanged()
+    await it.next()
+    await hub.shoppingChanged()
+    await hub.weatherChanged()
+    await hub.summaryChanged()
+    continuation.finish()
+    #expect(await it.next() == nil)
+}

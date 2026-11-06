@@ -5,9 +5,9 @@ import Logging
 import ServiceLifecycle
 
 /// The `info.version` of `frame-bridge.openapi.yaml` this build implements.
-public let contractVersion = "0.14.0"
+public let contractVersion = "0.15.0"
 
-public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: CalendarFeed? = nil, shopping: ShoppingFeed? = nil, chores: ChoresFeed? = nil, photos: PhotosFeed? = nil, images: ImageCache? = nil, lights: LightsFeed? = nil, nowPlaying: NowPlayingFeed? = nil, events: EventHub = EventHub()) -> Router<FrameRequestContext> {
+public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: CalendarFeed? = nil, shopping: ShoppingFeed? = nil, chores: ChoresFeed? = nil, photos: PhotosFeed? = nil, images: ImageCache? = nil, lights: LightsFeed? = nil, nowPlaying: NowPlayingFeed? = nil, summary: SummaryFeed? = nil, events: EventHub = EventHub()) -> Router<FrameRequestContext> {
     let router = Router(context: FrameRequestContext.self)
     // Outermost, so 401s and errors get the headers too.
     router.add(middleware: SecurityHeadersMiddleware())
@@ -126,6 +126,10 @@ public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: 
         headers[.cacheControl] = "no-cache"
         return Response(status: .ok, headers: headers, body: .init(byteBuffer: ByteBuffer(data: data)))
     }
+    router.get("api/summary") { _, _ -> DaySummary in
+        guard let summary else { throw APIError.sourceUnavailable("not configured") }
+        return try await summary.current(now: Date())
+    }
     router.get("healthz") { _, _ in
         let calendarHealth: FeedHealth
         if let calendar {
@@ -170,7 +174,8 @@ public func buildRouter(config: Config, weather: WeatherStore? = nil, calendar: 
             lights: lightsHealth,
             weather: weatherHealth,
             photos: photosHealth,
-            sonos: await nowPlaying?.health()
+            sonos: await nowPlaying?.health(),
+            summary: await summary?.health()
         ))
     }
     return router
@@ -253,8 +258,22 @@ public func buildApplication(config: Config) -> some ApplicationProtocol {
     } else {
         logger.info("sonos not configured")
     }
+    var summary: SummaryFeed?
+    var summaryService: SummaryService?
+    if let summaryConfig = config.summary {
+        let feed = SummaryFeed(calendar: calendar, chores: chores, people: config.people ?? [], events: events, logger: Logger(label: "frame-bridge.summary"))
+        summary = feed
+        // With neither calendar nor chores there is nothing to summarize: the feed stays "not configured".
+        if calendar != nil || chores != nil {
+            summaryService = SummaryService(feed: feed, store: KeychainWorkersAICredentialStore(), events: events, model: summaryConfig.model, transport: URLSessionWorkersAITransport())
+        } else {
+            logger.info("summary not configured: needs calendar or chores")
+        }
+    } else {
+        logger.info("summary not configured")
+    }
     var app = Application(
-        router: buildRouter(config: config, weather: weather, calendar: calendar, shopping: shopping, chores: chores, photos: photos, images: images, lights: lights, nowPlaying: nowPlaying, events: events),
+        router: buildRouter(config: config, weather: weather, calendar: calendar, shopping: shopping, chores: chores, photos: photos, images: images, lights: lights, nowPlaying: nowPlaying, summary: summary, events: events),
         configuration: .init(address: .hostname("0.0.0.0", port: 8787), serverName: "frame-bridge")
     )
     app.addServices(EventPingService(hub: events))
@@ -264,5 +283,6 @@ public func buildApplication(config: Config) -> some ApplicationProtocol {
     if let photosService { app.addServices(photosService) }
     if let hueCredentialsService { app.addServices(hueCredentialsService) }
     if let nowPlayingService { app.addServices(nowPlayingService) }
+    if let summaryService { app.addServices(summaryService) }
     return app
 }
