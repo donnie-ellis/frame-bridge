@@ -13,7 +13,7 @@ import Testing
             let body = String(buffer: response.body)
             #expect(!body.contains("null"))
             let health = try JSONDecoder().decode(Health.self, from: Data(body.utf8))
-            #expect(health.version == "0.14.0")
+            #expect(health.version == "0.15.0")
             #expect(health.version == contractVersion)
             for key in ["calendar", "shopping", "chores", "lights", "weather", "photos"] {
                 #expect(body.contains("\"\(key)\""))

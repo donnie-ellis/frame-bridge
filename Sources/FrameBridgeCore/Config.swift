@@ -29,13 +29,16 @@ public struct Config: Decodable, Sendable {
     /// The Sonos speaker and room. Absent: the now playing routes answer 503 and `/healthz` omits `sonos`.
     public let sonos: SonosConfig?
 
+    /// The Workers AI model for the day summary. Absent: `/healthz` omits `summary` and the route answers 503.
+    public let summary: SummaryConfig?
+
     /// The per-person chore lists, from `people[].chores`, in people order. Filled in by `Config.decode`.
     /// Absent (no person names a list): the chores feed reports "not configured".
     public var chores: ChoresConfig? = nil
 
-    private enum CodingKeys: String, CodingKey { case frames, dashboardDir, weather, people, calendar, shopping, photos, hue, sonos }
+    private enum CodingKeys: String, CodingKey { case frames, dashboardDir, weather, people, calendar, shopping, photos, hue, sonos, summary }
 
-    public init(frames: [String: String], dashboardDir: String, people: [Person]? = nil, weather: WeatherConfig? = nil, calendar: CalendarConfig? = nil, shopping: ShoppingConfig? = nil, photos: PhotosConfig? = nil, hue: HueConfig? = nil, sonos: SonosConfig? = nil, chores: ChoresConfig? = nil) {
+    public init(frames: [String: String], dashboardDir: String, people: [Person]? = nil, weather: WeatherConfig? = nil, calendar: CalendarConfig? = nil, shopping: ShoppingConfig? = nil, photos: PhotosConfig? = nil, hue: HueConfig? = nil, sonos: SonosConfig? = nil, summary: SummaryConfig? = nil, chores: ChoresConfig? = nil) {
         self.frames = frames
         self.dashboardDir = dashboardDir
         self.people = people
@@ -45,6 +48,7 @@ public struct Config: Decodable, Sendable {
         self.photos = photos
         self.hue = hue
         self.sonos = sonos
+        self.summary = summary
         self.chores = chores
     }
 
@@ -70,13 +74,14 @@ public struct Config: Decodable, Sendable {
         if let c = config.calendar {
             let resolved = CalendarConfig(people: (config.people ?? []).map(\.id), calendars: c.calendars)
             try resolved.validate()
-            config = Config(frames: config.frames, dashboardDir: config.dashboardDir, people: config.people, weather: config.weather, calendar: resolved, shopping: config.shopping, photos: config.photos, hue: config.hue, sonos: config.sonos)
+            config = Config(frames: config.frames, dashboardDir: config.dashboardDir, people: config.people, weather: config.weather, calendar: resolved, shopping: config.shopping, photos: config.photos, hue: config.hue, sonos: config.sonos, summary: config.summary)
         }
         if let s = config.shopping { try s.validate() }
         if let chores = try decodeChores(data, shoppingList: config.shopping?.list) { config.chores = chores }
         if let p = config.photos { try p.validate() }
         if let h = config.hue { try h.validate() }
         if let s = config.sonos { try s.validate() }
+        try config.summary?.validate()
         return config
     }
 
@@ -327,6 +332,23 @@ public struct SonosConfig: Decodable, Sendable, Equatable {
     }
 }
 
+/// The Workers AI model for the day summary. The account id and API token are in the Keychain.
+public struct SummaryConfig: Decodable, Sendable, Equatable {
+    /// A Workers AI model name such as `@cf/meta/llama-3.1-8b-instruct`. It goes into the request path.
+    public let model: String
+
+    public init(model: String) {
+        self.model = model
+    }
+
+    func validate() throws {
+        if model.isEmpty || model.contains(where: { $0.isWhitespace || $0 == "?" || $0 == "#" || $0 == "%" }) || model.contains("..") {
+            throw ConfigError.badSummary("\"summary.model\" must be a model name with no spaces, \"?\", \"#\", \"%\" or \"..\"")
+        }
+        if !model.hasPrefix("@cf/") { throw ConfigError.badSummary("\"summary.model\" must start with \"@cf/\"") }
+    }
+}
+
 /// `"all"` or a list of person ids.
 public enum CalendarPeople: Decodable, Sendable, Equatable {
     case all
@@ -362,6 +384,7 @@ public enum ConfigError: Error, CustomStringConvertible, Equatable {
     case badHue(String)
     case badSonos(String)
     case badChores(String)
+    case badSummary(String)
 
     public var description: String {
         switch self {
@@ -377,6 +400,7 @@ public enum ConfigError: Error, CustomStringConvertible, Equatable {
         case .badHue(let detail): "hue config: \(detail)"
         case .badSonos(let detail): "sonos config: \(detail)"
         case .badChores(let detail): "chores config: \(detail)"
+        case .badSummary(let detail): "summary config: \(detail)"
         case .badHash(let frame): "frame \"\(frame)\" needs a 64-character lowercase hex SHA-256 hash"
         }
     }

@@ -7,6 +7,7 @@ public actor EventHub {
     private var subscribers: [UUID: AsyncStream<String>.Continuation] = [:]
     private let timeZone: TimeZone
     private let logger: Logger
+    private var changeListeners: [@Sendable () async -> Void] = []
 
     public init() {
         self.init(timeZone: .current)
@@ -54,9 +55,24 @@ public actor EventHub {
         }
     }
 
-    func calendarChanged() { send(.calendar(.now(timeZone: timeZone))) }
+    /// Called after every `calendar` and `chores` notice, in its own task: the hub never waits for it.
+    func addChangeListener(_ handler: @escaping @Sendable () async -> Void) {
+        changeListeners.append(handler)
+    }
+
+    private func notifyListeners() {
+        for handler in changeListeners { Task { await handler() } }
+    }
+
+    func calendarChanged() {
+        send(.calendar(.now(timeZone: timeZone)))
+        notifyListeners()
+    }
     func shoppingChanged() { send(.shopping(.now(timeZone: timeZone))) }
-    func choresChanged() { send(.chores(.now(timeZone: timeZone))) }
+    func choresChanged() {
+        send(.chores(.now(timeZone: timeZone)))
+        notifyListeners()
+    }
     func weatherChanged() { send(.weather(.now(timeZone: timeZone))) }
     func photosChanged() { send(.photos(.now(timeZone: timeZone))) }
     func lightChanged(_ light: Light) { send(.light(light)) }
@@ -64,6 +80,7 @@ public actor EventHub {
     func sceneChanged(_ scene: Scene) { send(.scene(scene)) }
     func lightsChanged() { send(.lights(.now(timeZone: timeZone))) }
     func nowPlayingChanged(_ value: NowPlaying) { send(.nowplaying(value)) }
+    func summaryChanged() { send(.summary(.now(timeZone: timeZone))) }
 
     func ping() { broadcast(SSE.ping) }
 

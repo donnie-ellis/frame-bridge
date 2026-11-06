@@ -249,3 +249,28 @@ private func choresPeople(_ a: String?, _ b: String?) -> Data {
     let people = try #require(c.people)
     #expect(!String(decoding: try JSONEncoder().encode(people), as: UTF8.self).contains("chores"))
 }
+
+private func summaryJSON(_ summary: String) -> Data {
+    Data("{\"frames\":{\"kitchen\":\"\(good)\"},\"dashboardDir\":\"/tmp/dist\",\"summary\":\(summary)}".utf8)
+}
+
+@Test func configSummaryIsOptionalAndParses() throws {
+    #expect(try Config.decode(json("{\"kitchen\":\"\(good)\"}")).summary == nil)
+    #expect(try Config.decode(summaryJSON(#"{"model":"@cf/example/model-8b"}"#)).summary == SummaryConfig(model: "@cf/example/model-8b"))
+}
+
+@Test func configSummarySurvivesTheCalendarRebuild() throws {
+    let data = Data("{\"frames\":{\"kitchen\":\"\(good)\"},\"dashboardDir\":\"/tmp/dist\",\"people\":[{\"id\":\"a\",\"name\":\"A\",\"color\":\"#112233\"}],\"calendar\":{\"calendars\":{\"Family\":\"all\"}},\"summary\":{\"model\":\"@cf/example/model-8b\"}}".utf8)
+    let config = try Config.decode(data)
+    #expect(config.calendar != nil)
+    #expect(config.summary == SummaryConfig(model: "@cf/example/model-8b"))
+}
+
+@Test func configRejectsBadSummaryModels() {
+    let bad = ["", "meta/llama", "cf/x", "@cf/a b", "@cf/a?x=1", "@cf/a#b", "@cf/a%2Fb", "@cf/../x", "@cf/x\\n", "@cf/x\\t"]
+    for model in bad {
+        #expect(throws: ConfigError.self) { try Config.decode(summaryJSON("{\"model\":\"\(model)\"}")) }
+    }
+    #expect(throws: ConfigError.self) { try Config.decode(summaryJSON("{}")) }
+    #expect(ConfigError.badSummary("x").description == "summary config: x")
+}
